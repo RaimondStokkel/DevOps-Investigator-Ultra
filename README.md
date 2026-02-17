@@ -74,8 +74,6 @@ Open `http://localhost:4230`
 
 ## Screenshot
 
-Add your UI screenshot to `docs/gui-overview.png` and it will render here:
-
 ![DevOps MCP Investigator GUI](docs/gui-overview.png)
 
 GUI features:
