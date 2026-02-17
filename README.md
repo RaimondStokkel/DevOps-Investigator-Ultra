@@ -41,6 +41,9 @@ Optional:
 - `REPO_BASE_PATH` (default: `C:\Repo`)
 - `REPO_INDEX_PATH` (default: `configs/repo-index.json`)
 - `GUI_PORT` (default: `4230`)
+- `AGENT_MAX_CONTEXT_CHARS` (default: `120000`)
+- `AGENT_MAX_TOOL_RESULT_CHARS` (default: `12000`)
+- `AGENT_MAX_ASSISTANT_CHARS` (default: `20000`)
 
 ## Install
 
@@ -148,3 +151,4 @@ The agent uses `configs/repo-index.json` to determine lookup roots for local too
 - The UI and CLI are designed for iterative investigation and follow-up actions
 - Build logs can be large; timeline + summary tools are used first for triage
 - Root-cause fixes should be validated in source repos before merge
+- If you hit context/token limits, lower the `AGENT_MAX_*_CHARS` values and prefer log summaries or line-ranged log calls
