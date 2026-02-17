@@ -67,6 +67,42 @@ function sendJson(res: ServerResponse, status: number, data: unknown): void {
   res.end(JSON.stringify(data));
 }
 
+function getContentType(filePath: string): string {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith(".html")) return "text/html; charset=utf-8";
+  if (lower.endsWith(".css")) return "text/css; charset=utf-8";
+  if (lower.endsWith(".js")) return "application/javascript; charset=utf-8";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".ico")) return "image/x-icon";
+  return "application/octet-stream";
+}
+
+async function tryServeStatic(urlPath: string, res: ServerResponse): Promise<boolean> {
+  if (urlPath === "/" || urlPath.startsWith("/api/")) return false;
+
+  const relativePath = decodeURIComponent(urlPath).replace(/^\/+/, "");
+  const fullPath = resolve(publicDir, relativePath);
+  const normalizedPublicDir = publicDir.toLowerCase();
+  const normalizedFullPath = fullPath.toLowerCase();
+
+  if (!normalizedFullPath.startsWith(normalizedPublicDir)) {
+    sendJson(res, 403, { error: "Forbidden" });
+    return true;
+  }
+
+  if (!existsSync(fullPath)) return false;
+
+  const content = await readFile(fullPath);
+  res.statusCode = 200;
+  res.setHeader("Content-Type", getContentType(fullPath));
+  res.end(content);
+  return true;
+}
+
 function createMcpClient(): McpClient {
   const distServerScript = resolve(__dirname, "..", "server", "index.js");
   const srcServerScript = resolve(__dirname, "..", "server", "index.ts");
@@ -511,6 +547,11 @@ function handleStopInvestigation(res: ServerResponse): void {
 async function requestHandler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", "http://localhost");
+
+  if (method === "GET") {
+    const served = await tryServeStatic(url.pathname, res);
+    if (served) return;
+  }
 
   if (method === "GET" && url.pathname === "/") {
     const html = await readFile(htmlPath, "utf-8");

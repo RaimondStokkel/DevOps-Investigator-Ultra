@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="Agent asking question">
+  <rect width="320" height="220" rx="14" fill="#111827"/>
+  <circle cx="160" cy="108" r="72" fill="#1f2937" stroke="#374151" stroke-width="4"/>
+  <circle cx="136" cy="96" r="8" fill="#c4b5fd"/>
+  <circle cx="184" cy="96" r="8" fill="#c4b5fd"/>
+  <path d="M126 140 C144 124, 176 124, 194 140" fill="none" stroke="#c4b5fd" stroke-width="6" stroke-linecap="round"/>
+  <text x="238" y="74" text-anchor="middle" fill="#c4b5fd" font-size="54" font-family="Segoe UI, Arial, sans-serif">?</text>
+  <text x="160" y="196" text-anchor="middle" fill="#9ca3af" font-size="18" font-family="Segoe UI, Arial, sans-serif">Need input</text>
+</svg>

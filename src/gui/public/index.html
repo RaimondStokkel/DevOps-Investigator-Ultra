@@ -82,6 +82,38 @@
         padding-top: 12px;
         border-top: 1px solid #374151;
       }
+      .personality-layout {
+        display: flex;
+        gap: 12px;
+        align-items: stretch;
+        margin-top: 10px;
+      }
+      .repo-panel {
+        flex: 1;
+        min-width: 320px;
+      }
+      .agent-panel {
+        width: 210px;
+        border: 1px solid #374151;
+        border-radius: 8px;
+        background: #0b1220;
+        padding: 10px;
+      }
+      .agent-panel img {
+        width: 100%;
+        height: auto;
+        border-radius: 6px;
+        border: 1px solid #374151;
+        background: #111827;
+      }
+      .agent-panel .mood-title {
+        font-size: 12px;
+        color: #9ca3af;
+        margin-top: 8px;
+      }
+      .agent-panel .mood-text {
+        margin-top: 4px;
+      }
       .option-list {
         margin-top: 10px;
         display: flex;
@@ -93,6 +125,14 @@
         min-height: 36px;
         text-align: left;
         padding: 8px 10px;
+      }
+      @media (max-width: 760px) {
+        .personality-layout {
+          flex-direction: column;
+        }
+        .agent-panel {
+          width: auto;
+        }
       }
     </style>
   </head>
@@ -119,15 +159,25 @@
 
         <div class="subpart">
           <strong>Repo Index</strong>
-          <div class="row" style="margin-top: 10px">
-            <input id="repoBasePathInput" type="text" placeholder="C:\\Repo" style="min-width: 380px; height: 36px; border-radius: 6px; border: 1px solid #4b5563; background: #111827; color: #f9fafb; padding: 0 10px;" />
-            <button id="saveBasePathBtn">Set repo location</button>
+          <div class="personality-layout">
+            <div class="repo-panel">
+              <div class="row">
+                <input id="repoBasePathInput" type="text" placeholder="C:\\Repo" style="min-width: 380px; height: 36px; border-radius: 6px; border: 1px solid #4b5563; background: #111827; color: #f9fafb; padding: 0 10px;" />
+                <button id="saveBasePathBtn">Set repo location</button>
+              </div>
+              <div class="row" style="margin-top: 10px">
+                <button id="loadIndexBtn">Load index info</button>
+                <button id="rescanIndexBtn">Rescan C:\Repo</button>
+              </div>
+              <div class="small" id="indexStatus"></div>
+            </div>
+
+            <div class="agent-panel">
+              <img id="agentMoodImage" src="/moods/open.svg" alt="Agent mood" />
+              <div class="mood-title">Agent mood</div>
+              <div class="mood-text" id="agentMoodText">Ready to investigate.</div>
+            </div>
           </div>
-          <div class="row" style="margin-top: 10px">
-            <button id="loadIndexBtn">Load index info</button>
-            <button id="rescanIndexBtn">Rescan C:\Repo</button>
-          </div>
-          <div class="small" id="indexStatus"></div>
         </div>
       </div>
 
@@ -155,8 +205,23 @@
       const resultEl = document.getElementById("result");
       const optionsStatusEl = document.getElementById("optionsStatus");
       const optionsListEl = document.getElementById("optionsList");
+      const agentMoodImage = document.getElementById("agentMoodImage");
+      const agentMoodText = document.getElementById("agentMoodText");
       let eventSource = null;
       let shouldAutoScroll = true;
+
+      const AGENT_MOODS = {
+        open: { src: "/moods/open.svg", text: "Ready to investigate." },
+        thinking: { src: "/moods/thinking.svg", text: "Thinking through logs and tools..." },
+        question: { src: "/moods/question.svg", text: "I have a question for you." },
+        done: { src: "/moods/done.svg", text: "Investigation complete." },
+      };
+
+      function setAgentMood(mood) {
+        const data = AGENT_MOODS[mood] || AGENT_MOODS.open;
+        agentMoodImage.src = data.src;
+        agentMoodText.textContent = data.text;
+      }
 
       function setBusy(isBusy) {
         refreshBtn.disabled = isBusy;
@@ -290,6 +355,7 @@
         clearFollowupOptions();
         if (!options || options.length === 0) return;
 
+        setAgentMood("question");
         optionsStatusEl.textContent = "Follow-up options (click one to continue):";
 
         options.forEach((optionText, index) => {
@@ -343,6 +409,7 @@
 
       async function investigate(payload) {
         setBusy(true);
+        setAgentMood("thinking");
         setStatus("Running investigation...");
         resultEl.textContent = "";
         clearFollowupOptions();
@@ -404,6 +471,9 @@
             appendResult("\n\n--- Investigation Complete ---\n");
             const options = extractFollowupOptions(data.result || "");
             renderFollowupOptions(options);
+            if (!options || options.length === 0) {
+              setAgentMood("done");
+            }
             setStatus("Investigation complete.");
             setBusy(false);
             eventSource.close();
@@ -418,6 +488,7 @@
 
           if (data.type === "canceled") {
             appendResult("\n\n--- Investigation Stopped ---\n");
+            setAgentMood("open");
             setStatus("Investigation stopped.");
             return;
           }
@@ -433,6 +504,7 @@
 
           if (data.type === "error") {
             appendResult(`\n\nError: ${data.message}\n`);
+            setAgentMood("open");
             setStatus("Investigation failed.");
             setBusy(false);
             if (eventSource) {
@@ -447,6 +519,7 @@
             eventSource.close();
             eventSource = null;
           }
+          setAgentMood("open");
           setStatus("Investigation stream disconnected.");
           setBusy(false);
         };
@@ -602,6 +675,7 @@
       });
 
       (async () => {
+        setAgentMood("open");
         try {
           setBusy(true);
           await loadFailures();

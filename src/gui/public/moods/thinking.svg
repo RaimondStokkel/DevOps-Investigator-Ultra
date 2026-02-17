@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="Agent thinking">
+  <rect width="320" height="220" rx="14" fill="#111827"/>
+  <circle cx="160" cy="108" r="72" fill="#1f2937" stroke="#374151" stroke-width="4"/>
+  <circle cx="136" cy="96" r="8" fill="#fcd34d"/>
+  <circle cx="184" cy="96" r="8" fill="#fcd34d"/>
+  <path d="M128 136 C144 126, 176 126, 192 136" fill="none" stroke="#fcd34d" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="232" cy="62" r="8" fill="#fcd34d"/>
+  <circle cx="252" cy="46" r="12" fill="#fcd34d"/>
+  <text x="160" y="196" text-anchor="middle" fill="#9ca3af" font-size="18" font-family="Segoe UI, Arial, sans-serif">Thinking...</text>
+</svg>
