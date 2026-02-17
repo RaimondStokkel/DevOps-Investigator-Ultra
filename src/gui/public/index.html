@@ -236,6 +236,7 @@
         thinking: { src: "/moods/thinking.svg", text: "Thinking through logs and tools..." },
         question: { src: "/moods/question.svg", text: "I have a question for you." },
         done: { src: "/moods/done.svg", text: "Investigation complete." },
+        error: { src: "/moods/error.svg", text: "Something went wrong. Check the error and try again." },
       };
 
       function setAgentMood(mood) {
@@ -539,7 +540,7 @@
 
           if (data.type === "error") {
             appendResult(`\n\nError: ${data.message}\n`);
-            setAgentMood("open");
+            setAgentMood("error");
             setStatus("Investigation failed.");
             setBusy(false);
             if (eventSource) {
@@ -554,7 +555,7 @@
             eventSource.close();
             eventSource = null;
           }
-          setAgentMood("open");
+          setAgentMood("error");
           setStatus("Investigation stream disconnected.");
           setBusy(false);
         };
