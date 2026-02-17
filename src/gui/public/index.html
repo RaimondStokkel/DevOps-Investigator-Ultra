@@ -126,6 +126,21 @@
         text-align: left;
         padding: 8px 10px;
       }
+      .option-custom {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .option-custom input {
+        flex: 1;
+        min-width: 220px;
+        height: 36px;
+        border-radius: 6px;
+        border: 1px solid #4b5563;
+        background: #111827;
+        color: #f9fafb;
+        padding: 0 10px;
+      }
       @media (max-width: 760px) {
         .personality-layout {
           flex-direction: column;
@@ -186,6 +201,10 @@
         <pre id="result">No investigation started.</pre>
         <div class="small" id="optionsStatus"></div>
         <div class="option-list" id="optionsList"></div>
+        <div class="option-custom" style="margin-top: 10px">
+          <input id="customFollowupInput" type="text" placeholder="Type any follow-up response..." />
+          <button id="customFollowupSendBtn" class="option-item">Send follow-up</button>
+        </div>
       </div>
     </div>
 
@@ -205,6 +224,8 @@
       const resultEl = document.getElementById("result");
       const optionsStatusEl = document.getElementById("optionsStatus");
       const optionsListEl = document.getElementById("optionsList");
+      const customFollowupInput = document.getElementById("customFollowupInput");
+      const customFollowupSendBtn = document.getElementById("customFollowupSendBtn");
       const agentMoodImage = document.getElementById("agentMoodImage");
       const agentMoodText = document.getElementById("agentMoodText");
       let eventSource = null;
@@ -229,9 +250,11 @@
         investigateLatestBtn.disabled = isBusy;
         buildSelect.disabled = isBusy;
         stopBtn.disabled = !isBusy;
-        optionsListEl.querySelectorAll("button").forEach((btn) => {
-          btn.disabled = isBusy;
+        optionsListEl.querySelectorAll("button, input").forEach((el) => {
+          el.disabled = isBusy;
         });
+        customFollowupInput.disabled = isBusy;
+        customFollowupSendBtn.disabled = isBusy;
       }
 
       function setStatus(text) {
@@ -353,23 +376,35 @@
 
       function renderFollowupOptions(options) {
         clearFollowupOptions();
-        if (!options || options.length === 0) return;
 
+        const hasOptions = Array.isArray(options) && options.length > 0;
         setAgentMood("question");
-        optionsStatusEl.textContent = "Follow-up options (click one to continue):";
+        optionsStatusEl.textContent = hasOptions
+          ? "Follow-up options (click one to continue), or type your own response:"
+          : "Follow-up action: type any response to continue the investigation.";
 
-        options.forEach((optionText, index) => {
-          const button = document.createElement("button");
-          button.className = "option-item";
-          button.textContent = `${index + 1}. ${optionText}`;
-          button.addEventListener("click", async () => {
-            await investigate({
-              mode: "query",
-              query: `Please proceed with option ${index + 1}: ${optionText}`,
+        if (hasOptions) {
+          options.forEach((optionText, index) => {
+            const button = document.createElement("button");
+            button.className = "option-item";
+            button.textContent = `${index + 1}. ${optionText}`;
+            button.addEventListener("click", async () => {
+              await investigate({
+                mode: "query",
+                query: `Please proceed with option ${index + 1}: ${optionText}`,
+              });
             });
+            optionsListEl.appendChild(button);
           });
-          optionsListEl.appendChild(button);
-        });
+        }
+
+      }
+
+      async function submitCustomFollowup() {
+        const query = customFollowupInput.value.trim();
+        if (!query) return;
+        await investigate({ mode: "query", query });
+        customFollowupInput.value = "";
       }
 
       function formatFailure(f) {
@@ -666,6 +701,17 @@
 
       rescanIndexBtn.addEventListener("click", async () => {
         await rescanRepoIndex();
+      });
+
+      customFollowupSendBtn.addEventListener("click", async () => {
+        await submitCustomFollowup();
+      });
+
+      customFollowupInput.addEventListener("keydown", async (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          await submitCustomFollowup();
+        }
       });
 
       resultEl.addEventListener("scroll", () => {
