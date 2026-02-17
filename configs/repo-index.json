@@ -1,0 +1,174 @@
+{
+  "basePath": "C:\\Repo",
+  "generatedAt": "2026-02-17T15:00:19.856Z",
+  "lookupPaths": [
+    "C:\\Repo\\ai-components",
+    "C:\\Repo\\botbuilder-samples",
+    "C:\\Repo\\CaseAgentFramework",
+    "C:\\Repo\\DBViewsGenerator",
+    "C:\\Repo\\DevOps.Builds",
+    "C:\\Repo\\DevOps.PSModules",
+    "C:\\Repo\\DevOps.SaaSReleases",
+    "C:\\Repo\\ERP AI Tests",
+    "C:\\Repo\\ERP AL",
+    "C:\\Repo\\ERP Automated Tests",
+    "C:\\Repo\\ERP Performance",
+    "C:\\Repo\\ERP PTE",
+    "C:\\Repo\\ERP.Builds",
+    "C:\\Repo\\ERP.CRE",
+    "C:\\Repo\\ERP.PageScripting",
+    "C:\\Repo\\ERP.ProcessMgt",
+    "C:\\Repo\\ERP.PSModules",
+    "C:\\Repo\\MCP",
+    "C:\\Repo\\MCPDemo",
+    "C:\\Repo\\MSDyn365BC.Code.History",
+    "C:\\Repo\\Operations-Dataverse",
+    "C:\\Repo\\Prompt.Library",
+    "C:\\Repo\\wiki",
+    "C:\\Repo\\Zig365_CaseManagement",
+    "C:\\Repo\\Zig365-Agents",
+    "C:\\Repo\\zig365-landing-page"
+  ],
+  "repositories": [
+    {
+      "name": ".alpackages",
+      "path": "C:\\Repo\\.alpackages",
+      "hasGit": false
+    },
+    {
+      "name": ".snapshots",
+      "path": "C:\\Repo\\.snapshots",
+      "hasGit": false
+    },
+    {
+      "name": "ai-components",
+      "path": "C:\\Repo\\ai-components",
+      "hasGit": true
+    },
+    {
+      "name": "botbuilder-samples",
+      "path": "C:\\Repo\\botbuilder-samples",
+      "hasGit": true
+    },
+    {
+      "name": "CaseAgentFramework",
+      "path": "C:\\Repo\\CaseAgentFramework",
+      "hasGit": false
+    },
+    {
+      "name": "DBViewsGenerator",
+      "path": "C:\\Repo\\DBViewsGenerator",
+      "hasGit": true
+    },
+    {
+      "name": "DevOps.Builds",
+      "path": "C:\\Repo\\DevOps.Builds",
+      "hasGit": true
+    },
+    {
+      "name": "DevOps.PSModules",
+      "path": "C:\\Repo\\DevOps.PSModules",
+      "hasGit": true
+    },
+    {
+      "name": "DevOps.SaaSReleases",
+      "path": "C:\\Repo\\DevOps.SaaSReleases",
+      "hasGit": true
+    },
+    {
+      "name": "ERP AI Tests",
+      "path": "C:\\Repo\\ERP AI Tests",
+      "hasGit": true
+    },
+    {
+      "name": "ERP AL",
+      "path": "C:\\Repo\\ERP AL",
+      "hasGit": true
+    },
+    {
+      "name": "ERP Automated Tests",
+      "path": "C:\\Repo\\ERP Automated Tests",
+      "hasGit": true
+    },
+    {
+      "name": "ERP Performance",
+      "path": "C:\\Repo\\ERP Performance",
+      "hasGit": true
+    },
+    {
+      "name": "ERP PTE",
+      "path": "C:\\Repo\\ERP PTE",
+      "hasGit": true
+    },
+    {
+      "name": "ERP.Builds",
+      "path": "C:\\Repo\\ERP.Builds",
+      "hasGit": true
+    },
+    {
+      "name": "ERP.CRE",
+      "path": "C:\\Repo\\ERP.CRE",
+      "hasGit": true
+    },
+    {
+      "name": "ERP.PageScripting",
+      "path": "C:\\Repo\\ERP.PageScripting",
+      "hasGit": true
+    },
+    {
+      "name": "ERP.ProcessMgt",
+      "path": "C:\\Repo\\ERP.ProcessMgt",
+      "hasGit": true
+    },
+    {
+      "name": "ERP.PSModules",
+      "path": "C:\\Repo\\ERP.PSModules",
+      "hasGit": true
+    },
+    {
+      "name": "MCP",
+      "path": "C:\\Repo\\MCP",
+      "hasGit": false
+    },
+    {
+      "name": "MCPDemo",
+      "path": "C:\\Repo\\MCPDemo",
+      "hasGit": true
+    },
+    {
+      "name": "MSDyn365BC.Code.History",
+      "path": "C:\\Repo\\MSDyn365BC.Code.History",
+      "hasGit": true
+    },
+    {
+      "name": "Operations-Dataverse",
+      "path": "C:\\Repo\\Operations-Dataverse",
+      "hasGit": true
+    },
+    {
+      "name": "Prompt.Library",
+      "path": "C:\\Repo\\Prompt.Library",
+      "hasGit": true
+    },
+    {
+      "name": "wiki",
+      "path": "C:\\Repo\\wiki",
+      "hasGit": true
+    },
+    {
+      "name": "Zig365_CaseManagement",
+      "path": "C:\\Repo\\Zig365_CaseManagement",
+      "hasGit": true
+    },
+    {
+      "name": "Zig365-Agents",
+      "path": "C:\\Repo\\Zig365-Agents",
+      "hasGit": true
+    },
+    {
+      "name": "zig365-landing-page",
+      "path": "C:\\Repo\\zig365-landing-page",
+      "hasGit": true
+    }
+  ]
+}

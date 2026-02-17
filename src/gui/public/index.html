@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DevOps Build Investigator</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family: Segoe UI, Arial, sans-serif;
+        background: #111827;
+        color: #f3f4f6;
+      }
+      .container {
+        max-width: 900px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 16px;
+      }
+      .card {
+        background: #1f2937;
+        border: 1px solid #374151;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      select,
+      button {
+        height: 36px;
+        border-radius: 6px;
+        border: 1px solid #4b5563;
+        background: #111827;
+        color: #f9fafb;
+        padding: 0 10px;
+      }
+      select {
+        min-width: 460px;
+        max-width: 100%;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .status {
+        margin-top: 8px;
+        color: #93c5fd;
+        min-height: 20px;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        background: #0b1220;
+        border: 1px solid #374151;
+        border-radius: 8px;
+        padding: 12px;
+        min-height: 240px;
+        max-height: 70vh;
+        overflow: auto;
+        margin: 0;
+      }
+      .small {
+        color: #9ca3af;
+        font-size: 12px;
+        margin-top: 8px;
+      }
+      .subpart {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid #374151;
+      }
+      .option-list {
+        margin-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .option-item {
+        height: auto;
+        min-height: 36px;
+        text-align: left;
+        padding: 8px 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>DevOps Build Investigation GUI</h1>
+
+      <div class="card">
+        <div class="row">
+          <select id="buildSelect"></select>
+          <button id="refreshBtn">Refresh failures</button>
+        </div>
+        <div class="row" style="margin-top: 10px">
+          <button id="investigateSelectedBtn">Investigate selected build</button>
+          <button id="investigateLatestBtn">Investigate latest failure</button>
+          <button id="stopBtn" disabled>Stop</button>
+        </div>
+        <div class="status" id="status"></div>
+        <div class="small">Only one investigation runs at a time.</div>
+
+        <div class="subpart">
+          <strong>Repo Index</strong>
+          <div class="row" style="margin-top: 10px">
+            <button id="loadIndexBtn">Load index info</button>
+            <button id="rescanIndexBtn">Rescan C:\Repo</button>
+          </div>
+          <div class="small" id="indexStatus"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <strong>Result</strong>
+        <pre id="result">No investigation started.</pre>
+        <div class="small" id="optionsStatus"></div>
+        <div class="option-list" id="optionsList"></div>
+      </div>
+    </div>
+
+    <script>
+      const buildSelect = document.getElementById("buildSelect");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const investigateSelectedBtn = document.getElementById("investigateSelectedBtn");
+      const investigateLatestBtn = document.getElementById("investigateLatestBtn");
+      const stopBtn = document.getElementById("stopBtn");
+      const loadIndexBtn = document.getElementById("loadIndexBtn");
+      const rescanIndexBtn = document.getElementById("rescanIndexBtn");
+      const indexStatusEl = document.getElementById("indexStatus");
+      const statusEl = document.getElementById("status");
+      const resultEl = document.getElementById("result");
+      const optionsStatusEl = document.getElementById("optionsStatus");
+      const optionsListEl = document.getElementById("optionsList");
+      let eventSource = null;
+      let shouldAutoScroll = true;
+
+      function setBusy(isBusy) {
+        refreshBtn.disabled = isBusy;
+        investigateSelectedBtn.disabled = isBusy;
+        investigateLatestBtn.disabled = isBusy;
+        buildSelect.disabled = isBusy;
+        stopBtn.disabled = !isBusy;
+        optionsListEl.querySelectorAll("button").forEach((btn) => {
+          btn.disabled = isBusy;
+        });
+      }
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function setIndexStatus(text) {
+        indexStatusEl.textContent = text;
+      }
+
+      function setIndexBusy(isBusy) {
+        loadIndexBtn.disabled = isBusy;
+        rescanIndexBtn.disabled = isBusy;
+      }
+
+      function appendResult(text) {
+        resultEl.textContent += text;
+        if (shouldAutoScroll) {
+          resultEl.scrollTop = resultEl.scrollHeight;
+        }
+      }
+
+      function clearFollowupOptions() {
+        optionsListEl.innerHTML = "";
+        optionsStatusEl.textContent = "";
+      }
+
+      function extractFollowupOptions(summaryText) {
+        if (!summaryText) return [];
+
+        const lines = summaryText.split(/\r?\n/);
+        const options = [];
+
+        function cleanOption(text) {
+          return text
+            .replace(/^[-*•]\s*/, "")
+            .replace(/^\d+[\).:-]\s*/, "")
+            .replace(/^[✅☑️✔👉🔹🔸📌]\s*/, "")
+            .replace(/\*\*/g, "")
+            .trim();
+        }
+
+        function collectNumberedFrom(startIdx) {
+          const numbered = [];
+          for (let i = startIdx; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) {
+              if (numbered.length > 0) break;
+              continue;
+            }
+
+            if (/^(reply with a number|just say|investigation complete|---)/i.test(line) && numbered.length > 0) {
+              break;
+            }
+
+            const numberMatch = line.match(/^\s*(\d+)[\).:-]\s+(.+)$/);
+            if (numberMatch) {
+              const cleaned = cleanOption(numberMatch[2]);
+              if (cleaned) numbered.push(cleaned);
+              continue;
+            }
+
+            if (numbered.length > 0) {
+              break;
+            }
+          }
+          return numbered;
+        }
+
+        const choicesIdx = lines.findIndex((line) => /^\s*choices\s*:?\s*$/i.test(line));
+        if (choicesIdx >= 0) {
+          const choiceOptions = collectNumberedFrom(choicesIdx + 1);
+          if (choiceOptions.length > 0) {
+            return choiceOptions;
+          }
+        }
+
+        const markerIdx = lines.findIndex((line) =>
+          /(if you want.*i can|next.*i can|choose|options|follow-up)/i.test(line)
+        );
+
+        if (markerIdx >= 0) {
+          const numberedAfterMarker = collectNumberedFrom(markerIdx + 1);
+          if (numberedAfterMarker.length > 0) {
+            return numberedAfterMarker;
+          }
+        }
+
+        const startIdx = markerIdx >= 0 ? markerIdx + 1 : 0;
+        for (let i = startIdx; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) {
+            if (options.length > 0) break;
+            continue;
+          }
+
+          if (/^(reply with a number|just tell me|investigation complete|---)/i.test(line) && options.length > 0) {
+            break;
+          }
+
+          const numberMatch = line.match(/^\s*(\d+)[\).:-]\s+(.+)$/);
+          if (numberMatch) {
+            const cleaned = cleanOption(numberMatch[2]);
+            if (cleaned) options.push(cleaned);
+            continue;
+          }
+
+          const bulletMatch = line.match(/^[-*•]\s*(.+)$/);
+          if (bulletMatch) {
+            const cleaned = cleanOption(bulletMatch[1]);
+            if (cleaned) options.push(cleaned);
+          }
+        }
+
+        return Array.from(new Set(options));
+      }
+
+      function renderFollowupOptions(options) {
+        clearFollowupOptions();
+        if (!options || options.length === 0) return;
+
+        optionsStatusEl.textContent = "Follow-up options (click one to continue):";
+
+        options.forEach((optionText, index) => {
+          const button = document.createElement("button");
+          button.className = "option-item";
+          button.textContent = `${index + 1}. ${optionText}`;
+          button.addEventListener("click", async () => {
+            await investigate({
+              mode: "query",
+              query: `Please proceed with option ${index + 1}: ${optionText}`,
+            });
+          });
+          optionsListEl.appendChild(button);
+        });
+      }
+
+      function formatFailure(f) {
+        const finished = f.finishTime ? new Date(f.finishTime).toLocaleString() : "unknown time";
+        return `${f.id} | ${f.pipeline} | ${f.buildNumber} | ${finished}`;
+      }
+
+      async function loadFailures() {
+        setStatus("Loading recent failed builds...");
+        const response = await fetch("/api/failures");
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to load failures");
+        }
+
+        buildSelect.innerHTML = "";
+
+        if (!data.failures || data.failures.length === 0) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No failed builds found";
+          buildSelect.appendChild(option);
+          setStatus("No failed builds found.");
+          return;
+        }
+
+        for (const failure of data.failures) {
+          const option = document.createElement("option");
+          option.value = String(failure.id);
+          option.textContent = formatFailure(failure);
+          buildSelect.appendChild(option);
+        }
+
+        setStatus(`Loaded ${data.failures.length} failed builds.`);
+      }
+
+      async function investigate(payload) {
+        setBusy(true);
+        setStatus("Running investigation...");
+        resultEl.textContent = "";
+        clearFollowupOptions();
+        shouldAutoScroll = true;
+
+        const params = new URLSearchParams();
+        params.set(
+          "mode",
+          payload.mode === "selected" ? "selected" : payload.mode === "query" ? "query" : "latest"
+        );
+        if (payload.mode === "selected" && payload.buildId) {
+          params.set("buildId", String(payload.buildId));
+        }
+        if (payload.mode === "query" && payload.query) {
+          params.set("query", payload.query);
+        }
+
+        eventSource = new EventSource(`/api/investigate/stream?${params.toString()}`);
+
+        eventSource.onmessage = (event) => {
+          let data;
+          try {
+            data = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+
+          if (!data || !data.type) {
+            return;
+          }
+
+          if (data.type === "start") {
+            appendResult(`User: ${data.userPrompt}\n\n`);
+            return;
+          }
+
+          if (data.type === "turn") {
+            appendResult(`\n--- Turn ${data.turn}/${data.maxTurns} ---\n`);
+            return;
+          }
+
+          if (data.type === "assistant_chunk") {
+            appendResult(data.chunk);
+            return;
+          }
+
+          if (data.type === "tool_call") {
+            appendResult(`\n\n[Tool Call] ${data.name}(${data.arguments})\n`);
+            return;
+          }
+
+          if (data.type === "tool_result") {
+            appendResult(`\n[Tool Result]\n${data.content}\n`);
+            return;
+          }
+
+          if (data.type === "complete") {
+            appendResult("\n\n--- Investigation Complete ---\n");
+            const options = extractFollowupOptions(data.result || "");
+            renderFollowupOptions(options);
+            setStatus("Investigation complete.");
+            setBusy(false);
+            eventSource.close();
+            eventSource = null;
+            return;
+          }
+
+          if (data.type === "max_turns") {
+            appendResult("\n\n--- Max turns reached ---\n");
+            return;
+          }
+
+          if (data.type === "canceled") {
+            appendResult("\n\n--- Investigation Stopped ---\n");
+            setStatus("Investigation stopped.");
+            return;
+          }
+
+          if (data.type === "done") {
+            if (eventSource) {
+              eventSource.close();
+              eventSource = null;
+            }
+            setBusy(false);
+            return;
+          }
+
+          if (data.type === "error") {
+            appendResult(`\n\nError: ${data.message}\n`);
+            setStatus("Investigation failed.");
+            setBusy(false);
+            if (eventSource) {
+              eventSource.close();
+              eventSource = null;
+            }
+          }
+        };
+
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          setStatus("Investigation stream disconnected.");
+          setBusy(false);
+        };
+      }
+
+      async function loadRepoIndex() {
+        setIndexBusy(true);
+        setIndexStatus("Loading repo index...");
+
+        try {
+          const response = await fetch("/api/repo-index");
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Failed to load repo index");
+          }
+
+          setIndexStatus(`Loaded from ${data.path}`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setIndexStatus(`Error: ${message}`);
+        } finally {
+          setIndexBusy(false);
+        }
+      }
+
+      async function rescanRepoIndex() {
+        setIndexBusy(true);
+        setIndexStatus("Rescanning C:\\Repo...");
+
+        try {
+          const response = await fetch("/api/repo-index/rescan", {
+            method: "POST",
+          });
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Failed to rescan repo index");
+          }
+
+          setIndexStatus(
+            `Rescanned ${data.basePath} (${data.lookupCount} lookup paths, ${data.repoCount} folders).`
+          );
+          await loadRepoIndex();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setIndexStatus(`Error: ${message}`);
+          setIndexBusy(false);
+        }
+      }
+
+      refreshBtn.addEventListener("click", async () => {
+        try {
+          setBusy(true);
+          await loadFailures();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus(`Error: ${message}`);
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      investigateSelectedBtn.addEventListener("click", async () => {
+        const buildId = Number(buildSelect.value);
+        if (!buildId) {
+          setStatus("Select a failed build first.");
+          return;
+        }
+
+        await investigate({ mode: "selected", buildId });
+      });
+
+      investigateLatestBtn.addEventListener("click", async () => {
+        await investigate({ mode: "latest" });
+      });
+
+      stopBtn.addEventListener("click", async () => {
+        try {
+          const response = await fetch("/api/investigate/stop", { method: "POST" });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || "Failed to stop investigation");
+          }
+          if (data.stopped) {
+            setStatus("Stopping investigation...");
+          } else {
+            setStatus(data.message || "No active investigation.");
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus(`Error: ${message}`);
+        }
+      });
+
+      loadIndexBtn.addEventListener("click", async () => {
+        await loadRepoIndex();
+      });
+
+      rescanIndexBtn.addEventListener("click", async () => {
+        await rescanRepoIndex();
+      });
+
+      resultEl.addEventListener("scroll", () => {
+        const threshold = 24;
+        const distanceFromBottom = resultEl.scrollHeight - (resultEl.scrollTop + resultEl.clientHeight);
+        shouldAutoScroll = distanceFromBottom <= threshold;
+      });
+
+      (async () => {
+        try {
+          setBusy(true);
+          await loadFailures();
+          await loadRepoIndex();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus(`Error: ${message}`);
+        } finally {
+          setBusy(false);
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(cmd /c:*)",
+      "Bash(npx tsc:*)",
+      "Bash(test:*)",
+      "mcp__azure-devops__classify_build_error",
+      "mcp__azure-devops__get_pipeline_run"
+    ]
+  }
+}

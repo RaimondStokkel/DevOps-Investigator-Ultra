@@ -1,0 +1,237 @@
+import type { AgentConfig } from "../server/config.js";
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+}
+
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+export interface FunctionDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface ChatCompletionResponse {
+  content: string | null;
+  toolCalls: ToolCall[];
+  finishReason: "stop" | "tool_calls" | "length" | "content_filter";
+}
+
+export class AzureOpenAIClient {
+  private endpoint: string;
+  private apiKey: string;
+  private deployment: string;
+  private apiVersion: string;
+
+  constructor(config: AgentConfig) {
+    this.endpoint = config.azureOpenAiEndpoint;
+    this.apiKey = config.azureOpenAiKey;
+    this.deployment = config.azureOpenAiDeployment;
+    this.apiVersion = config.azureOpenAiApiVersion;
+  }
+
+  async chatCompletion(
+    messages: ChatMessage[],
+    tools?: FunctionDefinition[],
+    maxTokens?: number,
+    signal?: AbortSignal
+  ): Promise<ChatCompletionResponse> {
+    const url = `${this.endpoint}/openai/deployments/${this.deployment}/chat/completions?api-version=${this.apiVersion}`;
+
+    const body: Record<string, unknown> = {
+      messages,
+      max_completion_tokens: maxTokens ?? 4096,
+    };
+
+    if (tools && tools.length > 0) {
+      body.tools = tools;
+      body.tool_choice = "auto";
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "api-key": this.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Azure OpenAI API error ${response.status}: ${errorBody}`);
+    }
+
+    const data = await response.json() as {
+      choices: Array<{
+        message: {
+          content: string | null;
+          tool_calls?: ToolCall[];
+        };
+        finish_reason: string;
+      }>;
+    };
+
+    const choice = data.choices[0];
+    return {
+      content: choice.message.content,
+      toolCalls: choice.message.tool_calls ?? [],
+      finishReason: choice.finish_reason as ChatCompletionResponse["finishReason"],
+    };
+  }
+
+  async chatCompletionStream(
+    messages: ChatMessage[],
+    tools?: FunctionDefinition[],
+    maxTokens?: number,
+    onContent?: (chunk: string) => void,
+    onToolCall?: (toolCall: ToolCall) => void,
+    signal?: AbortSignal
+  ): Promise<ChatCompletionResponse> {
+    const url = `${this.endpoint}/openai/deployments/${this.deployment}/chat/completions?api-version=${this.apiVersion}`;
+
+    const body: Record<string, unknown> = {
+      messages,
+      max_completion_tokens: maxTokens ?? 4096,
+      stream: true,
+    };
+
+    if (tools && tools.length > 0) {
+      body.tools = tools;
+      body.tool_choice = "auto";
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "api-key": this.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Azure OpenAI API error ${response.status}: ${errorBody}`);
+    }
+
+    // Parse SSE stream
+    let fullContent = "";
+    const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
+    let finishReason: ChatCompletionResponse["finishReason"] = "stop";
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete SSE lines
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
+
+        try {
+          const parsed = JSON.parse(data) as {
+            choices: Array<{
+              delta: {
+                content?: string;
+                tool_calls?: Array<{
+                  index: number;
+                  id?: string;
+                  function?: { name?: string; arguments?: string };
+                }>;
+              };
+              finish_reason?: string;
+            }>;
+          };
+
+          const delta = parsed.choices[0]?.delta;
+          if (!delta) continue;
+
+          // Content chunks
+          if (delta.content) {
+            fullContent += delta.content;
+            onContent?.(delta.content);
+          }
+
+          // Tool call chunks (reconstructed by index)
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const existing = toolCallsMap.get(tc.index);
+              if (!existing) {
+                toolCallsMap.set(tc.index, {
+                  id: tc.id ?? "",
+                  name: tc.function?.name ?? "",
+                  arguments: tc.function?.arguments ?? "",
+                });
+              } else {
+                if (tc.id) existing.id = tc.id;
+                if (tc.function?.name) existing.name += tc.function.name;
+                if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+              }
+            }
+          }
+
+          if (parsed.choices[0]?.finish_reason) {
+            finishReason = parsed.choices[0].finish_reason as ChatCompletionResponse["finishReason"];
+          }
+        } catch {
+          // Skip malformed JSON chunks
+        }
+      }
+    }
+
+    // Build final tool calls
+    const toolCalls: ToolCall[] = Array.from(toolCallsMap.values())
+      .sort((a, b) => {
+        // Maintain order by map insertion order (index)
+        return 0;
+      })
+      .map((tc) => ({
+        id: tc.id,
+        type: "function" as const,
+        function: {
+          name: tc.name,
+          arguments: tc.arguments,
+        },
+      }));
+
+    // Notify about completed tool calls
+    for (const tc of toolCalls) {
+      onToolCall?.(tc);
+    }
+
+    return {
+      content: fullContent || null,
+      toolCalls,
+      finishReason,
+    };
+  }
+}

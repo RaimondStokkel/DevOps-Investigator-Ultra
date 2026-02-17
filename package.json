@@ -1,0 +1,26 @@
+{
+  "name": "devops-mcp-investigator",
+  "version": "1.0.0",
+  "description": "MCP server + agent for investigating Azure DevOps build failures",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start:server": "node dist/server/index.js",
+    "start:agent": "node dist/agent/index.js",
+    "start:gui": "node dist/gui/index.js",
+    "dev:server": "npx tsx src/server/index.ts",
+    "dev:agent": "npx tsx src/agent/index.ts",
+    "dev:gui": "npx tsx src/gui/index.ts",
+    "index:repo": "npx tsx src/tools/repo-index.ts C:\\Repo configs/repo-index.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "dotenv": "^16.4.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

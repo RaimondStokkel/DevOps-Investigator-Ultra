@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "devops-build-investigator": {
+      "command": "node",
+      "args": ["C:\\Data\\DevopsMCP\\dist\\server\\index.js"],
+      "env": {
+        "ADO_PAT": "${ADO_PAT}",
+        "ADO_ORG": "cegekadsa",
+        "ADO_PROJECT": "DynamicsEmpire"
+      }
+    }
+  }
+}
