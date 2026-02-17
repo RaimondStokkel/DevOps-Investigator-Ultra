@@ -109,6 +109,10 @@
           <button id="investigateSelectedBtn">Investigate selected build</button>
           <button id="investigateLatestBtn">Investigate latest failure</button>
           <button id="stopBtn" disabled>Stop</button>
+          <select id="reasoningSelect" style="min-width: 150px">
+            <option value="base" selected>Reasoning: Base</option>
+            <option value="expert">Reasoning: Expert</option>
+          </select>
         </div>
         <div class="status" id="status"></div>
         <div class="small">Only one investigation runs at a time.</div>
@@ -141,6 +145,7 @@
       const investigateSelectedBtn = document.getElementById("investigateSelectedBtn");
       const investigateLatestBtn = document.getElementById("investigateLatestBtn");
       const stopBtn = document.getElementById("stopBtn");
+      const reasoningSelect = document.getElementById("reasoningSelect");
       const repoBasePathInput = document.getElementById("repoBasePathInput");
       const saveBasePathBtn = document.getElementById("saveBasePathBtn");
       const loadIndexBtn = document.getElementById("loadIndexBtn");
@@ -354,6 +359,7 @@
         if (payload.mode === "query" && payload.query) {
           params.set("query", payload.query);
         }
+        params.set("reasoning", reasoningSelect.value === "expert" ? "expert" : "base");
 
         eventSource = new EventSource(`/api/investigate/stream?${params.toString()}`);
 

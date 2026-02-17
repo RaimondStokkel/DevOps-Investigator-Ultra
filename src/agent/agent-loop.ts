@@ -1,6 +1,7 @@
 import { AzureOpenAIClient, type ChatMessage, type ToolCall } from "./azure-openai-client.js";
 import { ToolExecutor } from "./tool-executor.js";
 import { SYSTEM_PROMPT } from "./prompts/system-prompt.js";
+import type { ReasoningMode } from "../server/config.js";
 
 export interface AgentLoopOptions {
   maxTurns?: number;
@@ -12,6 +13,8 @@ export interface AgentLoopOptions {
   maxContextChars?: number;
   maxToolResultChars?: number;
   maxAssistantMessageChars?: number;
+  reasoningMode?: ReasoningMode;
+  maxToolCallArgsChars?: number;
 }
 
 export type AgentLoopEvent =
@@ -50,6 +53,7 @@ export class AgentLoop {
     this.options.maxContextChars = options.maxContextChars ?? this.getEnvNumber("AGENT_MAX_CONTEXT_CHARS", 120_000);
     this.options.maxToolResultChars = options.maxToolResultChars ?? this.getEnvNumber("AGENT_MAX_TOOL_RESULT_CHARS", 12_000);
     this.options.maxAssistantMessageChars = options.maxAssistantMessageChars ?? this.getEnvNumber("AGENT_MAX_ASSISTANT_CHARS", 20_000);
+    this.options.maxToolCallArgsChars = options.maxToolCallArgsChars ?? this.getEnvNumber("AGENT_MAX_TOOL_CALL_ARGS_CHARS", 4_000);
   }
 
   async run(userPrompt: string): Promise<string> {
@@ -109,7 +113,8 @@ export class AgentLoop {
                   arguments: tc.function.arguments,
                 });
               },
-              this.options.abortSignal
+              this.options.abortSignal,
+              this.options.reasoningMode
             );
             break;
           } catch (error) {
@@ -130,16 +135,18 @@ export class AgentLoop {
             this.options.maxAssistantMessageChars!,
             "assistant response"
           );
+          const boundedToolCalls = this.boundToolCalls(response.toolCalls);
           this.messages.push({
             role: "assistant",
             content: boundedAssistantContent,
-            tool_calls: response.toolCalls.length > 0 ? response.toolCalls : undefined,
+            tool_calls: boundedToolCalls.length > 0 ? boundedToolCalls : undefined,
           });
         } else if (response.toolCalls.length > 0) {
+          const boundedToolCalls = this.boundToolCalls(response.toolCalls);
           this.messages.push({
             role: "assistant",
             content: null,
-            tool_calls: response.toolCalls,
+            tool_calls: boundedToolCalls,
           });
         }
 
@@ -238,11 +245,17 @@ export class AgentLoop {
   }
 
   private enforceContextBudget(): void {
+    this.shrinkMessagesInPlace();
+
     const maxChars = this.options.maxContextChars!;
     if (this.messages.length <= 2) return;
 
     while (this.totalContextChars() > maxChars && this.messages.length > 2) {
       this.messages.splice(1, 1);
+    }
+
+    if (this.totalContextChars() > maxChars) {
+      this.shrinkMessagesInPlace(true);
     }
   }
 
@@ -261,7 +274,57 @@ export class AgentLoop {
     });
 
     this.messages = [system, ...tail];
+    this.shrinkMessagesInPlace(true);
     this.enforceContextBudget();
+  }
+
+  private boundToolCalls(toolCalls: ToolCall[]): ToolCall[] {
+    return toolCalls.map((call) => ({
+      ...call,
+      function: {
+        ...call.function,
+        arguments: this.boundContent(
+          call.function.arguments,
+          this.options.maxToolCallArgsChars!,
+          `tool call args (${call.function.name})`
+        ),
+      },
+    }));
+  }
+
+  private shrinkMessagesInPlace(aggressive = false): void {
+    const toolLimit = aggressive
+      ? Math.min(this.options.maxToolResultChars!, 6_000)
+      : this.options.maxToolResultChars!;
+    const assistantLimit = aggressive
+      ? Math.min(this.options.maxAssistantMessageChars!, 8_000)
+      : this.options.maxAssistantMessageChars!;
+    const userLimit = aggressive ? 4_000 : 8_000;
+    const initialUserLimit = aggressive ? 6_000 : 12_000;
+
+    this.messages = this.messages.map((message, index) => {
+      let content = message.content;
+      if (typeof content === "string") {
+        if (message.role === "tool") {
+          content = this.boundContent(content, toolLimit, "tool message");
+        } else if (message.role === "assistant") {
+          content = this.boundContent(content, assistantLimit, "assistant message");
+        } else if (message.role === "user") {
+          const limit = index === 1 ? initialUserLimit : userLimit;
+          content = this.boundContent(content, limit, "user message");
+        }
+      }
+
+      const toolCalls = message.tool_calls
+        ? this.boundToolCalls(message.tool_calls)
+        : undefined;
+
+      return {
+        ...message,
+        content,
+        tool_calls: toolCalls,
+      };
+    });
   }
 
   private boundContent(content: string, maxChars: number, label: string): string {

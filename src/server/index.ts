@@ -10,6 +10,7 @@ import { registerBuildArtifactTools } from "./tools/build-artifacts.js";
 import { registerRepositoryTools } from "./tools/repositories.js";
 import { registerBuildAnalysisTools } from "./tools/build-analysis.js";
 import { registerWorkItemTools } from "./tools/work-items.js";
+import { registerTestRunTools } from "./tools/test-runs.js";
 
 async function main() {
   const config = loadServerConfig();
@@ -29,6 +30,7 @@ async function main() {
   registerRepositoryTools(server, client);
   registerBuildAnalysisTools(server, client);
   registerWorkItemTools(server, client);
+  registerTestRunTools(server, client);
 
   // Connect via stdio transport
   const transport = new StdioServerTransport();

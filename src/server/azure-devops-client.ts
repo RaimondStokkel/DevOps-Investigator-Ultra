@@ -13,6 +13,10 @@ import type {
   TreeResponse,
   WorkItem,
   WorkItemSearchResult,
+  TestRun,
+  TestRunListResponse,
+  TestCaseResult,
+  TestResultListResponse,
 } from "./types/azure-devops.js";
 
 export class AzureDevOpsClient {
@@ -238,5 +242,34 @@ export class AzureDevOpsClient {
     }
 
     return (await response.json()) as WorkItemSearchResult;
+  }
+
+  // --- Test Runs / Results ---
+
+  async listTestRuns(query?: {
+    buildId?: number;
+    top?: number;
+  }): Promise<TestRun[]> {
+    const params: Record<string, string> = {};
+    if (query?.buildId) params.buildUri = `vstfs:///Build/Build/${query.buildId}`;
+    if (query?.top) params["$top"] = String(query.top);
+
+    const result = await this.request<TestRunListResponse>("test/runs", params);
+    return result.value;
+  }
+
+  async getTestRunResults(runId: number, query?: {
+    outcome?: string;
+    top?: number;
+  }): Promise<TestCaseResult[]> {
+    const params: Record<string, string> = {};
+    if (query?.outcome) params.outcomes = query.outcome;
+    if (query?.top) params["$top"] = String(query.top);
+
+    const result = await this.request<TestResultListResponse>(
+      `test/runs/${runId}/results`,
+      params
+    );
+    return result.value;
   }
 }

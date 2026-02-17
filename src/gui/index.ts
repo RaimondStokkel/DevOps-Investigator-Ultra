@@ -11,6 +11,7 @@ import { ToolExecutor } from "../agent/tool-executor.js";
 import { AzureOpenAIClient } from "../agent/azure-openai-client.js";
 import { AgentLoop } from "../agent/agent-loop.js";
 import { getSystemPrompt } from "../agent/prompts/system-prompt.js";
+import type { ReasoningMode } from "../server/config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicDir = resolve(__dirname, "public");
@@ -22,6 +23,32 @@ const adoClient = new AzureDevOpsClient(serverConfig);
 let isInvestigating = false;
 let activeAbortController: AbortController | null = null;
 let lastInvestigationResult = "";
+
+function getEnvInt(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
+
+function getLoopLimits(mode: ReasoningMode) {
+  if (mode === "base") {
+    return {
+      maxContextChars: getEnvInt("AGENT_BASE_MAX_CONTEXT_CHARS") ?? 80_000,
+      maxToolResultChars: getEnvInt("AGENT_BASE_MAX_TOOL_RESULT_CHARS") ?? 8_000,
+      maxAssistantMessageChars: getEnvInt("AGENT_BASE_MAX_ASSISTANT_CHARS") ?? 12_000,
+      maxToolCallArgsChars: getEnvInt("AGENT_BASE_MAX_TOOL_CALL_ARGS_CHARS") ?? 2_500,
+    };
+  }
+
+  return {
+    maxContextChars: getEnvInt("AGENT_EXPERT_MAX_CONTEXT_CHARS"),
+    maxToolResultChars: getEnvInt("AGENT_EXPERT_MAX_TOOL_RESULT_CHARS"),
+    maxAssistantMessageChars: getEnvInt("AGENT_EXPERT_MAX_ASSISTANT_CHARS"),
+    maxToolCallArgsChars: getEnvInt("AGENT_EXPERT_MAX_TOOL_CALL_ARGS_CHARS"),
+  };
+}
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -63,9 +90,12 @@ async function runInvestigation(userPrompt: string): Promise<string> {
 async function runInvestigationWithEvents(
   userPrompt: string,
   onEvent?: (event: unknown) => void,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  reasoningMode?: ReasoningMode
 ): Promise<string> {
   const agentConfig = loadAgentConfig();
+  const selectedReasoning = reasoningMode ?? agentConfig.defaultReasoningMode;
+  const loopLimits = getLoopLimits(selectedReasoning);
   const mcpClient = createMcpClient();
   const abortHandler = () => {
     void mcpClient.disconnect();
@@ -90,6 +120,8 @@ async function runInvestigationWithEvents(
       onEvent: (event) => onEvent?.(event),
       abortSignal,
       systemPrompt: getSystemPrompt(serverConfig.projectUrl),
+      reasoningMode: selectedReasoning,
+      ...loopLimits,
     });
 
     return await agentLoop.run(userPrompt);
@@ -318,8 +350,17 @@ function buildPrompt(
     }
 
     if (lastInvestigationResult.trim()) {
+      const maxPrevChars = Number(process.env.GUI_FOLLOWUP_CONTEXT_CHARS ?? 12_000);
+      const safeMax = Number.isFinite(maxPrevChars) && maxPrevChars > 0
+        ? Math.floor(maxPrevChars)
+        : 12_000;
+      const prev = lastInvestigationResult;
+      const boundedPrev = prev.length > safeMax
+        ? `${prev.slice(0, Math.floor(safeMax * 0.6))}\n\n[previous investigation summary truncated from ${prev.length} to ${safeMax} chars]\n\n${prev.slice(-Math.ceil(safeMax * 0.4))}`
+        : prev;
+
       return {
-        prompt: `Continue from this previous investigation summary:\n\n${lastInvestigationResult}\n\nFollow-up request: ${query}`,
+        prompt: `Continue from this previous investigation summary:\n\n${boundedPrev}\n\nFollow-up request: ${query}`,
       };
     }
 
@@ -376,6 +417,7 @@ async function handleInvestigate(req: IncomingMessage, res: ServerResponse): Pro
     mode?: "selected" | "latest" | "query";
     buildId?: number;
     query?: string;
+    reasoning?: ReasoningMode;
   };
 
   const promptResult = buildPrompt(
@@ -395,7 +437,8 @@ async function handleInvestigate(req: IncomingMessage, res: ServerResponse): Pro
     const result = await runInvestigationWithEvents(
       promptResult.prompt,
       undefined,
-      activeAbortController.signal
+      activeAbortController.signal,
+      payload.reasoning
     );
     lastInvestigationResult = result;
     sendJson(res, 200, { result });
@@ -421,6 +464,8 @@ async function handleInvestigateStream(req: IncomingMessage, res: ServerResponse
   const mode = url.searchParams.get("mode") ?? "latest";
   const buildId = url.searchParams.get("buildId") ?? "";
   const query = url.searchParams.get("query") ?? "";
+  const reasoningRaw = (url.searchParams.get("reasoning") ?? "").toLowerCase();
+  const reasoning: ReasoningMode = reasoningRaw === "expert" ? "expert" : "base";
   const promptResult = buildPrompt(mode, buildId, query);
 
   if (promptResult.error) {
@@ -438,7 +483,8 @@ async function handleInvestigateStream(req: IncomingMessage, res: ServerResponse
       (event) => {
       sendSse(res, event);
       },
-      activeAbortController.signal
+      activeAbortController.signal,
+      reasoning
     );
     lastInvestigationResult = result;
     sendSse(res, { type: "done" });

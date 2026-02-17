@@ -1,4 +1,5 @@
 import type { AgentConfig } from "../server/config.js";
+import type { ReasoningMode } from "../server/config.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -32,25 +33,53 @@ export interface ChatCompletionResponse {
 }
 
 export class AzureOpenAIClient {
-  private endpoint: string;
+  private profiles: AgentConfig["reasoningProfiles"];
   private apiKey: string;
-  private deployment: string;
-  private apiVersion: string;
+  private defaultReasoningMode: ReasoningMode;
+  private static readonly O4_MIN_MIN_API_VERSION = "2024-12-01-preview";
 
   constructor(config: AgentConfig) {
-    this.endpoint = config.azureOpenAiEndpoint;
+    this.profiles = config.reasoningProfiles;
     this.apiKey = config.azureOpenAiKey;
-    this.deployment = config.azureOpenAiDeployment;
-    this.apiVersion = config.azureOpenAiApiVersion;
+    this.defaultReasoningMode = config.defaultReasoningMode;
+  }
+
+  private getProfile(reasoningMode?: ReasoningMode) {
+    const mode = reasoningMode ?? this.defaultReasoningMode;
+    return this.profiles[mode] ?? this.profiles.base;
+  }
+
+  private extractApiDate(apiVersion: string): string | null {
+    const match = apiVersion.match(/^(\d{4}-\d{2}-\d{2})/);
+    return match?.[1] ?? null;
+  }
+
+  private normalizeApiVersion(deployment: string, apiVersion: string): string {
+    if (!deployment.toLowerCase().startsWith("o4-mini")) return apiVersion;
+    const currentDate = this.extractApiDate(apiVersion);
+    const minDate = this.extractApiDate(AzureOpenAIClient.O4_MIN_MIN_API_VERSION);
+    if (!currentDate || !minDate || currentDate < minDate) {
+      return AzureOpenAIClient.O4_MIN_MIN_API_VERSION;
+    }
+    return apiVersion;
+  }
+
+  private isO4MiniApiVersionError(errorBody: string): boolean {
+    const msg = errorBody.toLowerCase();
+    return msg.includes("model o4-mini is enabled only for api versions")
+      || msg.includes("2024-12-01-preview and later");
   }
 
   async chatCompletion(
     messages: ChatMessage[],
     tools?: FunctionDefinition[],
     maxTokens?: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    reasoningMode?: ReasoningMode
   ): Promise<ChatCompletionResponse> {
-    const url = `${this.endpoint}/openai/deployments/${this.deployment}/chat/completions?api-version=${this.apiVersion}`;
+    const profile = this.getProfile(reasoningMode);
+    let apiVersion = this.normalizeApiVersion(profile.deployment, profile.apiVersion);
+    let url = `${profile.endpoint}/openai/deployments/${profile.deployment}/chat/completions?api-version=${apiVersion}`;
 
     const body: Record<string, unknown> = {
       messages,
@@ -62,7 +91,7 @@ export class AzureOpenAIClient {
       body.tool_choice = "auto";
     }
 
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       method: "POST",
       headers: {
         "api-key": this.apiKey,
@@ -73,8 +102,33 @@ export class AzureOpenAIClient {
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Azure OpenAI API error ${response.status}: ${errorBody}`);
+      let errorBody = await response.text();
+      if (
+        response.status === 400
+        && this.isO4MiniApiVersionError(errorBody)
+        && profile.deployment.toLowerCase().startsWith("o4-mini")
+        && apiVersion !== AzureOpenAIClient.O4_MIN_MIN_API_VERSION
+      ) {
+        apiVersion = AzureOpenAIClient.O4_MIN_MIN_API_VERSION;
+        url = `${profile.endpoint}/openai/deployments/${profile.deployment}/chat/completions?api-version=${apiVersion}`;
+        response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "api-key": this.apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal,
+        });
+
+        if (!response.ok) {
+          errorBody = await response.text();
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(`Azure OpenAI API error ${response.status}: ${errorBody}`);
+      }
     }
 
     const data = await response.json() as {
@@ -101,9 +155,12 @@ export class AzureOpenAIClient {
     maxTokens?: number,
     onContent?: (chunk: string) => void,
     onToolCall?: (toolCall: ToolCall) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    reasoningMode?: ReasoningMode
   ): Promise<ChatCompletionResponse> {
-    const url = `${this.endpoint}/openai/deployments/${this.deployment}/chat/completions?api-version=${this.apiVersion}`;
+    const profile = this.getProfile(reasoningMode);
+    let apiVersion = this.normalizeApiVersion(profile.deployment, profile.apiVersion);
+    let url = `${profile.endpoint}/openai/deployments/${profile.deployment}/chat/completions?api-version=${apiVersion}`;
 
     const body: Record<string, unknown> = {
       messages,
@@ -116,7 +173,7 @@ export class AzureOpenAIClient {
       body.tool_choice = "auto";
     }
 
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       method: "POST",
       headers: {
         "api-key": this.apiKey,
@@ -127,8 +184,33 @@ export class AzureOpenAIClient {
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Azure OpenAI API error ${response.status}: ${errorBody}`);
+      let errorBody = await response.text();
+      if (
+        response.status === 400
+        && this.isO4MiniApiVersionError(errorBody)
+        && profile.deployment.toLowerCase().startsWith("o4-mini")
+        && apiVersion !== AzureOpenAIClient.O4_MIN_MIN_API_VERSION
+      ) {
+        apiVersion = AzureOpenAIClient.O4_MIN_MIN_API_VERSION;
+        url = `${profile.endpoint}/openai/deployments/${profile.deployment}/chat/completions?api-version=${apiVersion}`;
+        response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "api-key": this.apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal,
+        });
+
+        if (!response.ok) {
+          errorBody = await response.text();
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(`Azure OpenAI API error ${response.status}: ${errorBody}`);
+      }
     }
 
     // Parse SSE stream

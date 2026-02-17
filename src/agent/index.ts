@@ -8,8 +8,35 @@ import { getSystemPrompt } from "./prompts/system-prompt.js";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
+import type { ReasoningMode } from "../server/config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function getEnvInt(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
+
+function getLoopLimits(mode: ReasoningMode) {
+  if (mode === "base") {
+    return {
+      maxContextChars: getEnvInt("AGENT_BASE_MAX_CONTEXT_CHARS") ?? 80_000,
+      maxToolResultChars: getEnvInt("AGENT_BASE_MAX_TOOL_RESULT_CHARS") ?? 8_000,
+      maxAssistantMessageChars: getEnvInt("AGENT_BASE_MAX_ASSISTANT_CHARS") ?? 12_000,
+      maxToolCallArgsChars: getEnvInt("AGENT_BASE_MAX_TOOL_CALL_ARGS_CHARS") ?? 2_500,
+    };
+  }
+
+  return {
+    maxContextChars: getEnvInt("AGENT_EXPERT_MAX_CONTEXT_CHARS"),
+    maxToolResultChars: getEnvInt("AGENT_EXPERT_MAX_TOOL_RESULT_CHARS"),
+    maxAssistantMessageChars: getEnvInt("AGENT_EXPERT_MAX_ASSISTANT_CHARS"),
+    maxToolCallArgsChars: getEnvInt("AGENT_EXPERT_MAX_TOOL_CALL_ARGS_CHARS"),
+  };
+}
 
 function parseArgs(args: string[]): {
   buildId?: number;
@@ -18,6 +45,7 @@ function parseArgs(args: string[]): {
   investigate?: string;
   verbose?: boolean;
   maxTurns?: number;
+  reasoning?: ReasoningMode;
 } {
   const result: ReturnType<typeof parseArgs> = {};
 
@@ -46,6 +74,11 @@ function parseArgs(args: string[]): {
       case "--max-turns":
         result.maxTurns = parseInt(args[++i]);
         break;
+      case "--reasoning": {
+        const value = (args[++i] ?? "").toLowerCase();
+        result.reasoning = value === "expert" ? "expert" : "base";
+        break;
+      }
       case "--help":
       case "-h":
         printHelp();
@@ -71,6 +104,7 @@ Options:
   --investigate, -i <query>  Free-form investigation query
   --verbose, -v              Show detailed tool call logs
   --max-turns <n>            Maximum agent turns (default: 30)
+  --reasoning <mode>         Reasoning profile: base | expert (default from env)
   --help, -h                 Show this help message
 
 Examples:
@@ -78,6 +112,7 @@ Examples:
   npx tsx src/agent/index.ts --latest-failure
   npx tsx src/agent/index.ts --latest-failure --pipeline "AL-CI"
   npx tsx src/agent/index.ts --investigate "Why did the last full build fail?"
+  npx tsx src/agent/index.ts --latest-failure --reasoning expert
   npx tsx src/agent/index.ts -i "Show me recent failures and their patterns"
 `);
 }
@@ -131,7 +166,9 @@ async function main(): Promise<void> {
 
     // Create Azure OpenAI client
     const openaiClient = new AzureOpenAIClient(agentConfig);
-    console.error(`Azure OpenAI: ${agentConfig.azureOpenAiEndpoint} (${agentConfig.azureOpenAiDeployment})`);
+    console.error(
+      `Azure OpenAI: base=${agentConfig.reasoningProfiles.base.deployment}, expert=${agentConfig.reasoningProfiles.expert.deployment}, default=${agentConfig.defaultReasoningMode}`
+    );
 
     // Build the user prompt
     let userPrompt: string;
@@ -148,10 +185,14 @@ async function main(): Promise<void> {
     }
 
     // Run agent loop
+    const selectedReasoning = args.reasoning ?? agentConfig.defaultReasoningMode;
+    const loopLimits = getLoopLimits(selectedReasoning);
     const agentLoop = new AgentLoop(openaiClient, toolExecutor, {
       verbose: args.verbose ?? true,
       maxTurns: args.maxTurns,
       systemPrompt: getSystemPrompt(serverConfig.projectUrl),
+      reasoningMode: selectedReasoning,
+      ...loopLimits,
     });
 
     const result = await agentLoop.run(userPrompt);

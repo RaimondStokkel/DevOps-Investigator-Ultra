@@ -29,21 +29,34 @@ Required:
 
 - `ADO_PAT` — Azure DevOps Personal Access Token
 - `AZURE_OPENAI_KEY`
-- `AZURE_OPENAI_ENDPOINT`
-- `AZURE_OPENAI_DEPLOYMENT`
+- `AZURE_OPENAI_BASE_URL` (default: `https://ronk-mee1p8ba-eastus2.cognitiveservices.azure.com/openai/deployments/o4-mini-2025-04-16/chat/completions?api-version=2024-12-01-preview`)
 
 Optional:
 
 - `ADO_ORG` (default: `fictional-org`)
 - `ADO_PROJECT` (default: `FictionalProject`)
 - `ADO_PROJECT_URL` (default: `https://dev.azure.com/<ADO_ORG>/<ADO_PROJECT>/`)
+- `AZURE_OPENAI_EXPERT_URL` (optional expert profile URL)
+- `AZURE_OPENAI_DEFAULT_REASONING` (`base` | `expert`, default: `base`)
+- `AZURE_OPENAI_ENDPOINT` (optional fallback for expert profile)
+- `AZURE_OPENAI_DEPLOYMENT` (optional fallback for expert profile)
 - `AZURE_OPENAI_API_VERSION` (default: `2024-05-01-preview`)
 - `REPO_BASE_PATH` (default: `C:\Repo`)
 - `REPO_INDEX_PATH` (default: `configs/repo-index.json`)
 - `GUI_PORT` (default: `4230`)
+- `GUI_FOLLOWUP_CONTEXT_CHARS` (default: `12000`, caps prior summary included in follow-up prompts)
 - `AGENT_MAX_CONTEXT_CHARS` (default: `120000`)
 - `AGENT_MAX_TOOL_RESULT_CHARS` (default: `12000`)
 - `AGENT_MAX_ASSISTANT_CHARS` (default: `20000`)
+- `AGENT_MAX_TOOL_CALL_ARGS_CHARS` (default: `4000`)
+- `AGENT_BASE_MAX_CONTEXT_CHARS` (default when base selected: `80000`)
+- `AGENT_BASE_MAX_TOOL_RESULT_CHARS` (default when base selected: `8000`)
+- `AGENT_BASE_MAX_ASSISTANT_CHARS` (default when base selected: `12000`)
+- `AGENT_BASE_MAX_TOOL_CALL_ARGS_CHARS` (default when base selected: `2500`)
+- `AGENT_EXPERT_MAX_CONTEXT_CHARS` (optional override when expert selected)
+- `AGENT_EXPERT_MAX_TOOL_RESULT_CHARS` (optional override when expert selected)
+- `AGENT_EXPERT_MAX_ASSISTANT_CHARS` (optional override when expert selected)
+- `AGENT_EXPERT_MAX_TOOL_CALL_ARGS_CHARS` (optional override when expert selected)
 
 ## Install
 
@@ -77,7 +90,7 @@ Open `http://localhost:4230`
 
 ## Screenshot
 
-![DevOps MCP Investigator GUI](docs/gui-overview.png)
+![DevOps MCP Investigator GUI](docs/gui-verview.png)
 
 GUI features:
 
@@ -85,6 +98,7 @@ GUI features:
 - Live streaming investigation output
 - Stop running investigation
 - Follow-up option buttons (numbered, clickable)
+- Reasoning profile toggle (Base / Expert)
 - Repo index status/actions (load info, set repo location, rescan)
 
 ## Quick demo flow

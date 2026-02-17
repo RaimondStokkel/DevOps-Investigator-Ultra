@@ -171,6 +171,61 @@ export interface WorkItemSearchResult {
   }>;
 }
 
+// Test Run / Test Result types
+export interface TestRun {
+  id: number;
+  name?: string;
+  state?: string;
+  outcome?: string;
+  totalTests?: number;
+  passedTests?: number;
+  incompleteTests?: number;
+  notApplicableTests?: number;
+  unanalyzedTests?: number;
+  startedDate?: string;
+  completedDate?: string;
+  build?: {
+    id: number;
+    name?: string;
+  };
+  url?: string;
+}
+
+export interface TestRunListResponse {
+  count: number;
+  value: TestRun[];
+}
+
+export interface TestCaseResult {
+  id: number;
+  testRun?: {
+    id: number;
+    name?: string;
+  };
+  testCaseTitle?: string;
+  automatedTestName?: string;
+  automatedTestStorage?: string;
+  outcome?: string;
+  state?: string;
+  priority?: number;
+  durationInMs?: number;
+  startedDate?: string;
+  completedDate?: string;
+  errorMessage?: string;
+  stackTrace?: string;
+  computerName?: string;
+  owner?: {
+    displayName?: string;
+    uniqueName?: string;
+  };
+  url?: string;
+}
+
+export interface TestResultListResponse {
+  count: number;
+  value: TestCaseResult[];
+}
+
 // Error classification
 export type ErrorCategory =
   | "al_compilation_error"
