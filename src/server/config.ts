@@ -10,6 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export interface ServerConfig {
   organization: string;
   project: string;
+  projectUrl: string;
   pat: string;
   baseUrl: string;
 }
@@ -40,11 +41,13 @@ function requireEnv(name: string): string {
 export function loadServerConfig(): ServerConfig {
   const organization = process.env.ADO_ORG ?? "cegekadsa";
   const project = process.env.ADO_PROJECT ?? "DynamicsEmpire";
+  const projectUrl = process.env.ADO_PROJECT_URL ?? `https://dev.azure.com/${organization}/${project}/`;
   const pat = requireEnv("ADO_PAT");
 
   return {
     organization,
     project,
+    projectUrl,
     pat,
     baseUrl: `https://dev.azure.com/${organization}/${project}/_apis`,
   };

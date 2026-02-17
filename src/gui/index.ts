@@ -10,6 +10,7 @@ import { LocalTools } from "../agent/local-tools.js";
 import { ToolExecutor } from "../agent/tool-executor.js";
 import { AzureOpenAIClient } from "../agent/azure-openai-client.js";
 import { AgentLoop } from "../agent/agent-loop.js";
+import { getSystemPrompt } from "../agent/prompts/system-prompt.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicDir = resolve(__dirname, "public");
@@ -88,6 +89,7 @@ async function runInvestigationWithEvents(
       maxTurns: 30,
       onEvent: (event) => onEvent?.(event),
       abortSignal,
+      systemPrompt: getSystemPrompt(serverConfig.projectUrl),
     });
 
     return await agentLoop.run(userPrompt);
@@ -154,7 +156,78 @@ async function handleGetRepoIndex(res: ServerResponse): Promise<void> {
   try {
     const { repoIndexPath } = loadAgentConfig();
     const content = await readFile(repoIndexPath, "utf-8");
-    sendJson(res, 200, { path: repoIndexPath, content });
+    let basePath: string | undefined;
+    try {
+      const parsed = JSON.parse(content) as Partial<RepoIndex>;
+      if (typeof parsed.basePath === "string") {
+        basePath = parsed.basePath;
+      }
+    } catch {
+      // Keep raw content response even if JSON is malformed
+    }
+
+    sendJson(res, 200, { path: repoIndexPath, content, basePath });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    sendJson(res, 500, { error: message });
+  }
+}
+
+async function handleSetRepoBasePath(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: "Invalid JSON body." });
+    return;
+  }
+
+  const payload = (body ?? {}) as { basePath?: string };
+  const basePathRaw = payload.basePath?.trim();
+  if (!basePathRaw) {
+    sendJson(res, 400, { error: "basePath is required." });
+    return;
+  }
+
+  const normalizedBasePath = resolve(basePathRaw);
+
+  try {
+    const { repoIndexPath } = loadAgentConfig();
+
+    let existing: RepoIndex = {
+      basePath: normalizedBasePath,
+      generatedAt: new Date().toISOString(),
+      lookupPaths: [],
+      repositories: [],
+    };
+
+    if (existsSync(repoIndexPath)) {
+      try {
+        const content = await readFile(repoIndexPath, "utf-8");
+        const parsed = JSON.parse(content) as Partial<RepoIndex>;
+        existing = {
+          basePath: typeof parsed.basePath === "string" ? parsed.basePath : normalizedBasePath,
+          generatedAt: typeof parsed.generatedAt === "string" ? parsed.generatedAt : new Date().toISOString(),
+          lookupPaths: Array.isArray(parsed.lookupPaths) ? parsed.lookupPaths : [],
+          repositories: Array.isArray(parsed.repositories) ? parsed.repositories as RepoEntry[] : [],
+        };
+      } catch {
+        // If current file is invalid, overwrite with a minimal valid structure
+      }
+    }
+
+    existing.basePath = normalizedBasePath;
+    existing.generatedAt = new Date().toISOString();
+
+    await writeFile(repoIndexPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
+
+    sendJson(res, 200, {
+      updated: true,
+      basePath: normalizedBasePath,
+      path: repoIndexPath,
+      message: "Repository location updated. Run Rescan C:\\Repo (or your new path) to refresh lookup paths.",
+      envOverride: Boolean(process.env.REPO_BASE_PATH),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     sendJson(res, 500, { error: message });
@@ -418,6 +491,11 @@ async function requestHandler(req: IncomingMessage, res: ServerResponse): Promis
 
   if (method === "POST" && url.pathname === "/api/repo-index/rescan") {
     await handleRescanRepoIndex(res);
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/api/repo-index/base-path") {
+    await handleSetRepoBasePath(req, res);
     return;
   }
 

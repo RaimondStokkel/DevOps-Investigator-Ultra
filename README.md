@@ -34,8 +34,9 @@ Required:
 
 Optional:
 
-- `ADO_ORG` (default: `cegekadsa`)
-- `ADO_PROJECT` (default: `DynamicsEmpire`)
+- `ADO_ORG` (default: `fictional-org`)
+- `ADO_PROJECT` (default: `FictionalProject`)
+- `ADO_PROJECT_URL` (default: `https://dev.azure.com/<ADO_ORG>/<ADO_PROJECT>/`)
 - `AZURE_OPENAI_API_VERSION` (default: `2024-05-01-preview`)
 - `REPO_BASE_PATH` (default: `C:\Repo`)
 - `REPO_INDEX_PATH` (default: `configs/repo-index.json`)
@@ -83,7 +84,7 @@ GUI features:
 - Live streaming investigation output
 - Stop running investigation
 - Follow-up option buttons (numbered, clickable)
-- Repo index status/actions (load info, rescan)
+- Repo index status/actions (load info, set repo location, rescan)
 
 ## Quick demo flow
 
@@ -100,7 +101,8 @@ GUI features:
 6. Watch live output in **Result**
 7. If follow-up choices appear, click a numbered option to continue
 8. Use **Stop** to cancel a running investigation
-9. (Optional) Use **Rescan C:\Repo** to refresh lookup roots
+9. (Optional) Change **Repo location** in the top panel
+10. Click **Rescan C:\Repo** (or your new path) to refresh lookup roots after changing location
 
 ### 2) CLI Agent
 
@@ -138,6 +140,8 @@ npm run dev:server
 The agent uses `configs/repo-index.json` to determine lookup roots for local tools (`read`, `grep`, `search`, etc.).
 
 - Edit `configs/repo-index.json` directly if needed
+- You can also set the repo location from the GUI top panel
+- After changing the repo location, a rescan is required to refresh lookup paths
 - Run `npm run index:repo` to refresh from disk
 - Tool `local_get_repo_index` is available to the agent for runtime inspection
 

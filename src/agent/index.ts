@@ -4,6 +4,7 @@ import { McpClient } from "./mcp-client.js";
 import { LocalTools } from "./local-tools.js";
 import { ToolExecutor } from "./tool-executor.js";
 import { AgentLoop } from "./agent-loop.js";
+import { getSystemPrompt } from "./prompts/system-prompt.js";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
@@ -150,6 +151,7 @@ async function main(): Promise<void> {
     const agentLoop = new AgentLoop(openaiClient, toolExecutor, {
       verbose: args.verbose ?? true,
       maxTurns: args.maxTurns,
+      systemPrompt: getSystemPrompt(serverConfig.projectUrl),
     });
 
     const result = await agentLoop.run(userPrompt);

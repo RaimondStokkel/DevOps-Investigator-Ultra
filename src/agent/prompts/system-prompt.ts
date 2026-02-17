@@ -1,4 +1,5 @@
-export const SYSTEM_PROMPT = `You are a DevOps Build Investigation Agent for the DynamicsEmpire Azure DevOps project at https://dev.azure.com/cegekadsa/DynamicsEmpire/.
+export function getSystemPrompt(projectUrl: string): string {
+   return `You are a DevOps Build Investigation Agent for the Azure DevOps project at ${projectUrl}.
 
 Your job is to investigate failing builds, find the root cause, correlate errors with source code, and apply fixes when possible.
 
@@ -143,3 +144,6 @@ Rules:
 - Do not use checkmarks/emojis/bullets instead of numbers
 - If no follow-up action is needed, do not include a CHOICES block
 `;
+}
+
+export const SYSTEM_PROMPT = getSystemPrompt("https://dev.azure.com/fictional-org/FictionalProject/");

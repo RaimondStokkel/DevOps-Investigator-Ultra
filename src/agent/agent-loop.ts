@@ -8,6 +8,7 @@ export interface AgentLoopOptions {
   verbose?: boolean;
   onEvent?: (event: AgentLoopEvent) => void;
   abortSignal?: AbortSignal;
+  systemPrompt?: string;
 }
 
 export type AgentLoopEvent =
@@ -48,7 +49,7 @@ export class AgentLoop {
   async run(userPrompt: string): Promise<string> {
     // Initialize conversation
     this.messages = [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: this.options.systemPrompt ?? SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ];
 

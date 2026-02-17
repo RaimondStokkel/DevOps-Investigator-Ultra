@@ -116,6 +116,10 @@
         <div class="subpart">
           <strong>Repo Index</strong>
           <div class="row" style="margin-top: 10px">
+            <input id="repoBasePathInput" type="text" placeholder="C:\\Repo" style="min-width: 380px; height: 36px; border-radius: 6px; border: 1px solid #4b5563; background: #111827; color: #f9fafb; padding: 0 10px;" />
+            <button id="saveBasePathBtn">Set repo location</button>
+          </div>
+          <div class="row" style="margin-top: 10px">
             <button id="loadIndexBtn">Load index info</button>
             <button id="rescanIndexBtn">Rescan C:\Repo</button>
           </div>
@@ -137,6 +141,8 @@
       const investigateSelectedBtn = document.getElementById("investigateSelectedBtn");
       const investigateLatestBtn = document.getElementById("investigateLatestBtn");
       const stopBtn = document.getElementById("stopBtn");
+      const repoBasePathInput = document.getElementById("repoBasePathInput");
+      const saveBasePathBtn = document.getElementById("saveBasePathBtn");
       const loadIndexBtn = document.getElementById("loadIndexBtn");
       const rescanIndexBtn = document.getElementById("rescanIndexBtn");
       const indexStatusEl = document.getElementById("indexStatus");
@@ -167,6 +173,8 @@
       }
 
       function setIndexBusy(isBusy) {
+        repoBasePathInput.disabled = isBusy;
+        saveBasePathBtn.disabled = isBusy;
         loadIndexBtn.disabled = isBusy;
         rescanIndexBtn.disabled = isBusy;
       }
@@ -450,7 +458,48 @@
             throw new Error(data.error || "Failed to load repo index");
           }
 
+          if (data.basePath) {
+            repoBasePathInput.value = data.basePath;
+          }
           setIndexStatus(`Loaded from ${data.path}`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setIndexStatus(`Error: ${message}`);
+        } finally {
+          setIndexBusy(false);
+        }
+      }
+
+      async function saveRepoBasePath() {
+        const basePath = repoBasePathInput.value.trim();
+        if (!basePath) {
+          setIndexStatus("Enter a repository location first (for example: C:\\Repo). Then rescan.");
+          return;
+        }
+
+        setIndexBusy(true);
+        setIndexStatus("Saving repository location...");
+
+        try {
+          const response = await fetch("/api/repo-index/base-path", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ basePath }),
+          });
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Failed to save repository location");
+          }
+
+          repoBasePathInput.value = data.basePath || basePath;
+          if (data.envOverride) {
+            setIndexStatus(
+              `${data.message} Note: REPO_BASE_PATH env var is set and will override file value until removed.`
+            );
+          } else {
+            setIndexStatus(data.message || "Repository location saved. Rescan is required.");
+          }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           setIndexStatus(`Error: ${message}`);
@@ -530,6 +579,10 @@
 
       loadIndexBtn.addEventListener("click", async () => {
         await loadRepoIndex();
+      });
+
+      saveBasePathBtn.addEventListener("click", async () => {
+        await saveRepoBasePath();
       });
 
       rescanIndexBtn.addEventListener("click", async () => {
