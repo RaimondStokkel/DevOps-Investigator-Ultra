@@ -3,3 +3,4 @@ dist/
 .env
 .mcp.json
 *.js.map
+artifacts/build-logs/

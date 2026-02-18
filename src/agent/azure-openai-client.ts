@@ -36,12 +36,47 @@ export class AzureOpenAIClient {
   private profiles: AgentConfig["reasoningProfiles"];
   private apiKey: string;
   private defaultReasoningMode: ReasoningMode;
+  private diagnosticsEnabled: boolean;
   private static readonly O4_MIN_MIN_API_VERSION = "2024-12-01-preview";
+  private static diagnosticsSequence = 0;
 
   constructor(config: AgentConfig) {
     this.profiles = config.reasoningProfiles;
     this.apiKey = config.azureOpenAiKey;
     this.defaultReasoningMode = config.defaultReasoningMode;
+    const diagnosticsRaw = (process.env.AOAI_DIAGNOSTICS ?? "").toLowerCase();
+    this.diagnosticsEnabled = diagnosticsRaw === "1" || diagnosticsRaw === "true" || diagnosticsRaw === "yes";
+  }
+
+  private nextDiagnosticsId(): number {
+    AzureOpenAIClient.diagnosticsSequence += 1;
+    return AzureOpenAIClient.diagnosticsSequence;
+  }
+
+  private collectInterestingHeaders(response: Response): Record<string, string> {
+    const interesting: Record<string, string> = {};
+    for (const [rawKey, value] of response.headers.entries()) {
+      const key = rawKey.toLowerCase();
+      if (
+        key.includes("x-ms")
+        || key.includes("openai")
+        || key.includes("request-id")
+        || key.includes("trace")
+        || key.includes("cache")
+      ) {
+        interesting[key] = value;
+      }
+    }
+    return interesting;
+  }
+
+  private logDiagnostics(payload: Record<string, unknown>): void {
+    if (!this.diagnosticsEnabled) return;
+    try {
+      console.error(`[AOAI_DIAGNOSTICS] ${JSON.stringify(payload)}`);
+    } catch {
+      console.error("[AOAI_DIAGNOSTICS] {\"error\":\"failed to serialize diagnostics payload\"}");
+    }
   }
 
   private getProfile(reasoningMode?: ReasoningMode) {
@@ -78,6 +113,7 @@ export class AzureOpenAIClient {
     reasoningMode?: ReasoningMode
   ): Promise<ChatCompletionResponse> {
     const profile = this.getProfile(reasoningMode);
+    const diagnosticsId = this.nextDiagnosticsId();
     let apiVersion = this.normalizeApiVersion(profile.deployment, profile.apiVersion);
     let url = `${profile.endpoint}/openai/deployments/${profile.deployment}/chat/completions?api-version=${apiVersion}`;
 
@@ -101,6 +137,16 @@ export class AzureOpenAIClient {
       signal,
     });
 
+    this.logDiagnostics({
+      id: diagnosticsId,
+      callType: "chatCompletion",
+      stage: "initial_response",
+      deployment: profile.deployment,
+      apiVersion,
+      status: response.status,
+      headers: this.collectInterestingHeaders(response),
+    });
+
     if (!response.ok) {
       let errorBody = await response.text();
       if (
@@ -121,6 +167,16 @@ export class AzureOpenAIClient {
           signal,
         });
 
+        this.logDiagnostics({
+          id: diagnosticsId,
+          callType: "chatCompletion",
+          stage: "retry_response",
+          deployment: profile.deployment,
+          apiVersion,
+          status: response.status,
+          headers: this.collectInterestingHeaders(response),
+        });
+
         if (!response.ok) {
           errorBody = await response.text();
         }
@@ -139,7 +195,18 @@ export class AzureOpenAIClient {
         };
         finish_reason: string;
       }>;
+      usage?: Record<string, unknown>;
     };
+
+    this.logDiagnostics({
+      id: diagnosticsId,
+      callType: "chatCompletion",
+      stage: "parsed",
+      deployment: profile.deployment,
+      apiVersion,
+      status: response.status,
+      usage: data.usage,
+    });
 
     const choice = data.choices[0];
     return {
@@ -159,6 +226,7 @@ export class AzureOpenAIClient {
     reasoningMode?: ReasoningMode
   ): Promise<ChatCompletionResponse> {
     const profile = this.getProfile(reasoningMode);
+    const diagnosticsId = this.nextDiagnosticsId();
     let apiVersion = this.normalizeApiVersion(profile.deployment, profile.apiVersion);
     let url = `${profile.endpoint}/openai/deployments/${profile.deployment}/chat/completions?api-version=${apiVersion}`;
 
@@ -183,6 +251,16 @@ export class AzureOpenAIClient {
       signal,
     });
 
+    this.logDiagnostics({
+      id: diagnosticsId,
+      callType: "chatCompletionStream",
+      stage: "initial_response",
+      deployment: profile.deployment,
+      apiVersion,
+      status: response.status,
+      headers: this.collectInterestingHeaders(response),
+    });
+
     if (!response.ok) {
       let errorBody = await response.text();
       if (
@@ -201,6 +279,16 @@ export class AzureOpenAIClient {
           },
           body: JSON.stringify(body),
           signal,
+        });
+
+        this.logDiagnostics({
+          id: diagnosticsId,
+          callType: "chatCompletionStream",
+          stage: "retry_response",
+          deployment: profile.deployment,
+          apiVersion,
+          status: response.status,
+          headers: this.collectInterestingHeaders(response),
         });
 
         if (!response.ok) {
@@ -309,6 +397,18 @@ export class AzureOpenAIClient {
     for (const tc of toolCalls) {
       onToolCall?.(tc);
     }
+
+    this.logDiagnostics({
+      id: diagnosticsId,
+      callType: "chatCompletionStream",
+      stage: "parsed",
+      deployment: profile.deployment,
+      apiVersion,
+      status: response.status,
+      finishReason,
+      outputChars: fullContent.length,
+      toolCallCount: toolCalls.length,
+    });
 
     return {
       content: fullContent || null,

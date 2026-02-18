@@ -38,6 +38,7 @@ Optional:
 - `ADO_PROJECT_URL` (default: `https://dev.azure.com/<ADO_ORG>/<ADO_PROJECT>/`)
 - `AZURE_OPENAI_EXPERT_URL` (optional expert profile URL)
 - `AZURE_OPENAI_DEFAULT_REASONING` (`base` | `expert`, default: `base`)
+- `AOAI_DIAGNOSTICS` (`true`/`false`, default: `false`; logs Azure OpenAI response metadata for cache diagnostics)
 - `AZURE_OPENAI_ENDPOINT` (optional fallback for expert profile)
 - `AZURE_OPENAI_DEPLOYMENT` (optional fallback for expert profile)
 - `AZURE_OPENAI_API_VERSION` (default: `2024-05-01-preview`)

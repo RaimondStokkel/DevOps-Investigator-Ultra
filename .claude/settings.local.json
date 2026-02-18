@@ -7,7 +7,12 @@
       "Bash(npx tsc:*)",
       "Bash(test:*)",
       "mcp__azure-devops__classify_build_error",
-      "mcp__azure-devops__get_pipeline_run"
+      "mcp__azure-devops__get_pipeline_run",
+      "mcp__azure-devops__get_build_timeline",
+      "mcp__azure-devops__get_build_log_summary",
+      "mcp__azure-devops__get_build_log",
+      "Bash(python3 -c \" import json with open\\(''mcp-azure-devops-get_build_log_summary-1771401371571.txt'', ''r'', encoding=''utf-8''\\) as f: data = json.load\\(f\\) # Get the text content for item in data: if item.get\\(''type''\\) == ''text'': text = item[''text''] # Find lines with ''Job Failed'' or ''error'' \\(case insensitive\\) lines = text.split\\(''\\\\n''\\) for line in lines: lower = line.lower\\(\\) if ''job failed'' in lower or \\(''error'' in lower and ''warning'' not in lower\\): print\\(line[:500]\\) \")",
+      "Bash(python3:*)"
     ]
   }
 }
