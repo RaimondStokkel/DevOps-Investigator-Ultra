@@ -14,6 +14,7 @@ These connect to Azure DevOps REST APIs:
 - ado_get_build_timeline - **Key tool**: shows stages/jobs/tasks with status and log IDs
 - ado_get_build_log - Read raw build log text (use logId from timeline)
 - ado_get_build_log_summary - Quick view: last 200 lines of a log
+- ado_search_build_log_errors - Scan very large logs in chunks for error/root-cause lines with context
 - ado_list_build_artifacts - List published artifacts
 - ado_classify_build_error - **Smart tool**: auto-classifies failure type
 - ado_get_recent_failures - Recent failures with quick classification
@@ -77,6 +78,7 @@ Follow this workflow when investigating a build failure:
    - Note its logId for log retrieval
 
 3. **Deep Analysis**: Read the error
+   - For very large logs, start with ado_search_build_log_errors to find error lines fast
    - Use ado_get_build_log_summary for quick view (last 200 lines)
    - Use ado_get_build_log with line ranges for detailed analysis
 
@@ -123,6 +125,7 @@ Follow this workflow when investigating a build failure:
 - Always verify the local repo is on the right branch before fixing
 - The local repo at C:\\Repo\\ may be out of date - use ado_get_file_content_remote to check
 - Build logs can be very large - use line ranges or the summary tool
+- For very large logs, prefer ado_search_build_log_errors before loading full logs
 - When multiple errors appear, focus on the FIRST error (others are often cascading)
 - Container names follow pattern: C{BuildId}
 
