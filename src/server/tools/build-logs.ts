@@ -6,12 +6,48 @@ import { resolve } from "node:path";
 
 const ERROR_LINE_REGEX = /(##\[error\])|(^|\s)error(\s|:)|exception|(^|\s)failed(\s|:)|fatal/i;
 const WARNING_ONLY_REGEX = /(^|\s)warning(\s|:)/i;
-const MAX_PREVIEW_ERRORS = 120;
-const MAX_CONTEXT_BLOCKS = 8;
-const MAX_SELECTED_TEXT_CHARS = 80_000;
+const MAX_PREVIEW_ERRORS = 8;
+const MAX_CONTEXT_BLOCKS = 4;
+const MAX_LINE_CHARS = 220;
+const MAX_CONTEXT_CHARS = 1_000;
+const MAX_SELECTED_TEXT_CHARS = 3_000;
+const MAX_TAIL_LINES = 40;
+
+interface NormalizedLogResult {
+  normalizedText: string;
+  sourceFormat: "plain" | "ado-json-lines";
+}
 
 function sanitizeLine(line: string): string {
   return line.replace(/\r$/, "");
+}
+
+function shortenLine(line: string, maxChars = MAX_LINE_CHARS): string {
+  const clean = sanitizeLine(line);
+  if (clean.length <= maxChars) return clean;
+  return `${clean.slice(0, maxChars)} ... [line truncated]`;
+}
+
+function normalizeLogText(rawLog: string): NormalizedLogResult {
+  const trimmed = rawLog.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed) as { value?: unknown };
+      if (Array.isArray(parsed.value) && parsed.value.every((item) => typeof item === "string")) {
+        return {
+          normalizedText: (parsed.value as string[]).join("\n"),
+          sourceFormat: "ado-json-lines",
+        };
+      }
+    } catch {
+      // Fall back to plain text when parsing fails
+    }
+  }
+
+  return {
+    normalizedText: rawLog,
+    sourceFormat: "plain",
+  };
 }
 
 function isErrorLine(line: string): boolean {
@@ -26,7 +62,7 @@ function extractErrors(lines: string[]): Array<{ lineNumber: number; text: strin
     const line = sanitizeLine(lines[idx]);
     if (!line.trim()) continue;
     if (isErrorLine(line)) {
-      errors.push({ lineNumber: idx + 1, text: line });
+      errors.push({ lineNumber: idx + 1, text: shortenLine(line) });
     }
   }
   return errors;
@@ -41,7 +77,11 @@ function buildErrorContexts(
   for (const error of errors.slice(0, MAX_CONTEXT_BLOCKS)) {
     const start = Math.max(1, error.lineNumber - 5);
     const end = Math.min(lines.length, error.lineNumber + 12);
-    const excerpt = lines.slice(start - 1, end).join("\n");
+    const excerptRaw = lines
+      .slice(start - 1, end)
+      .map((line) => shortenLine(line))
+      .join("\n");
+    const excerpt = boundText(excerptRaw, MAX_CONTEXT_CHARS, "context excerpt");
     contexts.push({
       startLine: start,
       endLine: end,
@@ -62,9 +102,10 @@ function boundText(text: string, maxChars: number, label: string): string {
 async function saveLogArtifacts(
   buildId: number,
   logId: number,
-  fullLog: string,
+  rawLog: string,
+  normalizedLog: string,
   errors: Array<{ lineNumber: number; text: string }>
-): Promise<{ rawPath: string; errorPath: string }> {
+): Promise<{ rawPath: string; normalizedPath: string; errorPath: string }> {
   const outputRoot = resolve(
     process.env.BUILD_LOG_ARTIFACTS_PATH ?? resolve(process.cwd(), "artifacts", "build-logs")
   );
@@ -72,16 +113,18 @@ async function saveLogArtifacts(
 
   const baseName = `build-${buildId}-log-${logId}`;
   const rawPath = resolve(outputRoot, `${baseName}.log`);
+  const normalizedPath = resolve(outputRoot, `${baseName}.normalized.log`);
   const errorPath = resolve(outputRoot, `${baseName}.errors.log`);
 
   const errorFileContent = errors
     .map((error) => `[line ${error.lineNumber}] ${error.text}`)
     .join("\n");
 
-  await writeFile(rawPath, fullLog, "utf-8");
+  await writeFile(rawPath, rawLog, "utf-8");
+  await writeFile(normalizedPath, normalizedLog, "utf-8");
   await writeFile(errorPath, errorFileContent + (errorFileContent ? "\n" : ""), "utf-8");
 
-  return { rawPath, errorPath };
+  return { rawPath, normalizedPath, errorPath };
 }
 
 export function registerBuildLogTools(server: McpServer, client: AzureDevOpsClient): void {
@@ -95,11 +138,18 @@ export function registerBuildLogTools(server: McpServer, client: AzureDevOpsClie
       endLine: z.number().optional().describe("End line (1-based). Omit to read to end."),
     },
     async ({ buildId, logId, startLine, endLine }) => {
-      const fullLog = await client.getBuildLog(buildId, logId);
-      const lines = fullLog.split("\n");
+      const rawLog = await client.getBuildLog(buildId, logId);
+      const normalized = normalizeLogText(rawLog);
+      const lines = normalized.normalizedText.split("\n");
       const errors = extractErrors(lines);
       const contexts = buildErrorContexts(lines, errors);
-      const { rawPath, errorPath } = await saveLogArtifacts(buildId, logId, fullLog, errors);
+      const { rawPath, normalizedPath, errorPath } = await saveLogArtifacts(
+        buildId,
+        logId,
+        rawLog,
+        normalized.normalizedText,
+        errors
+      );
 
       const safeStart = startLine && startLine > 0 ? Math.floor(startLine) : 1;
       const safeEnd = endLine && endLine > 0 ? Math.floor(endLine) : lines.length;
@@ -108,17 +158,23 @@ export function registerBuildLogTools(server: McpServer, client: AzureDevOpsClie
 
       let selectedText = "";
       if (lines.length > 0) {
-        selectedText = lines.slice(boundedStart - 1, boundedEnd).join("\n");
+        selectedText = lines
+          .slice(boundedStart - 1, boundedEnd)
+          .map((line) => shortenLine(line))
+          .join("\n");
       }
       selectedText = boundText(selectedText, MAX_SELECTED_TEXT_CHARS, "selected log range");
 
       const payload = {
         buildId,
         logId,
+        sourceFormat: normalized.sourceFormat,
         rawLogSavedTo: rawPath,
+        normalizedLogSavedTo: normalizedPath,
         extractedErrorsSavedTo: errorPath,
         totalLines: lines.length,
-        totalChars: fullLog.length,
+        totalChars: normalized.normalizedText.length,
+        rawChars: rawLog.length,
         errorCount: errors.length,
         errorPreview: errors.slice(0, MAX_PREVIEW_ERRORS),
         errorPreviewTruncated: errors.length > MAX_PREVIEW_ERRORS,
@@ -149,24 +205,39 @@ export function registerBuildLogTools(server: McpServer, client: AzureDevOpsClie
       logId: z.number().describe("The log ID from the timeline record"),
     },
     async ({ buildId, logId }) => {
-      const fullLog = await client.getBuildLog(buildId, logId);
-      const lines = fullLog.split("\n");
-      const tailLines = lines.slice(-200);
+      const rawLog = await client.getBuildLog(buildId, logId);
+      const normalized = normalizeLogText(rawLog);
+      const lines = normalized.normalizedText.split("\n");
+      const tailLines = lines.slice(-MAX_TAIL_LINES);
       const totalLines = lines.length;
       const errors = extractErrors(lines);
-      const { rawPath, errorPath } = await saveLogArtifacts(buildId, logId, fullLog, errors);
+      const { rawPath, normalizedPath, errorPath } = await saveLogArtifacts(
+        buildId,
+        logId,
+        rawLog,
+        normalized.normalizedText,
+        errors
+      );
 
       const payload = {
         buildId,
         logId,
+        sourceFormat: normalized.sourceFormat,
         rawLogSavedTo: rawPath,
+        normalizedLogSavedTo: normalizedPath,
         extractedErrorsSavedTo: errorPath,
         totalLines,
-        totalChars: fullLog.length,
+        totalChars: normalized.normalizedText.length,
+        rawChars: rawLog.length,
         errorCount: errors.length,
         errorPreview: errors.slice(0, MAX_PREVIEW_ERRORS),
         errorPreviewTruncated: errors.length > MAX_PREVIEW_ERRORS,
-        tailPreview: tailLines.join("\n"),
+        tailRange: {
+          startLine: Math.max(1, totalLines - MAX_TAIL_LINES + 1),
+          endLine: totalLines,
+          previewLineCount: tailLines.length,
+        },
+        nextStep: "Use get_build_log with startLine/endLine from tailRange or errorPreview line numbers to inspect focused sections.",
       };
 
       return {
