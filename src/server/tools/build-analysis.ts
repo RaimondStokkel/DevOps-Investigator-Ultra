@@ -3,6 +3,9 @@ import { z } from "zod";
 import type { AzureDevOpsClient } from "../azure-devops-client.js";
 import type { ErrorCategory, BuildErrorClassification, TimelineRecord } from "../types/azure-devops.js";
 
+const CLASSIFY_CHUNK_SIZE = 2_000;
+const CLASSIFY_MAX_SCANNED_LINES = 120_000;
+
 // Error pattern definitions for the DynamicsEmpire build system
 const ERROR_PATTERNS: Array<{
   category: ErrorCategory;
@@ -141,6 +144,79 @@ function classifyLogText(logText: string): BuildErrorClassification {
   };
 }
 
+function normalizeLogChunk(rawLog: string): string {
+  const trimmed = rawLog.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed) as { value?: unknown };
+      if (Array.isArray(parsed.value) && parsed.value.every((item) => typeof item === "string")) {
+        return (parsed.value as string[]).join("\n");
+      }
+    } catch {
+      // Fall back to plain text when parsing fails
+    }
+  }
+  return rawLog;
+}
+
+function hasErrorSignal(logText: string): boolean {
+  return logText
+    .split("\n")
+    .some((line) => /error|exception|fail|##\[error\]/i.test(line) && !/warning/i.test(line));
+}
+
+async function classifyFailedTaskLog(
+  client: AzureDevOpsClient,
+  buildId: number,
+  logId: number
+): Promise<BuildErrorClassification> {
+  let nextStartLine = 1;
+  let scannedLines = 0;
+  let firstUnknownWithSignal: BuildErrorClassification | null = null;
+
+  while (scannedLines < CLASSIFY_MAX_SCANNED_LINES) {
+    const remaining = CLASSIFY_MAX_SCANNED_LINES - scannedLines;
+    const linesToFetch = Math.min(CLASSIFY_CHUNK_SIZE, remaining);
+    const rawChunk = await client.getBuildLog(
+      buildId,
+      logId,
+      nextStartLine,
+      nextStartLine + linesToFetch - 1
+    );
+    const normalizedChunk = normalizeLogChunk(rawChunk);
+    if (!normalizedChunk.trim()) break;
+
+    const chunkLines = normalizedChunk.split("\n");
+    const scannedThisChunk = chunkLines.length;
+    if (scannedThisChunk === 0) break;
+
+    const classification = classifyLogText(normalizedChunk);
+    if (classification.category !== "unknown") {
+      return classification;
+    }
+
+    if (!firstUnknownWithSignal && hasErrorSignal(normalizedChunk)) {
+      firstUnknownWithSignal = classification;
+    }
+
+    scannedLines += scannedThisChunk;
+    nextStartLine += scannedThisChunk;
+
+    if (scannedThisChunk < linesToFetch) break;
+  }
+
+  if (firstUnknownWithSignal) {
+    return firstUnknownWithSignal;
+  }
+
+  return {
+    category: "unknown",
+    failingStep: "",
+    errorMessage: "Unknown error",
+    logExcerpt: "No error-like lines found in scanned build log range.",
+  };
+}
+
 function findFirstFailedTask(records: TimelineRecord[]): TimelineRecord | undefined {
   // Find tasks that failed, ordered by start time
   return records
@@ -155,7 +231,7 @@ function findFirstFailedTask(records: TimelineRecord[]): TimelineRecord | undefi
 export function registerBuildAnalysisTools(server: McpServer, client: AzureDevOpsClient): void {
   server.tool(
     "classify_build_error",
-    "Automatically classify a build failure by analyzing the timeline and logs. Returns the error category (al_compilation_error, test_failure, container_error, etc.), the failing step, error message, and optionally the affected file and line number. This is the fastest way to understand what went wrong.",
+    "Automatically classify a build failure by analyzing the timeline and logs. Uses chunked log scanning for large logs and returns the error category (al_compilation_error, test_failure, container_error, etc.), the failing step, error message, and optionally the affected file and line number.",
     {
       buildId: z.number().describe("The build ID to analyze"),
     },
@@ -185,19 +261,17 @@ export function registerBuildAnalysisTools(server: McpServer, client: AzureDevOp
         };
       }
 
-      // 3. Read the log for the failed task
-      let logText = "";
-      if (failedTask.log?.id) {
-        logText = await client.getBuildLog(buildId, failedTask.log.id);
-        // Use only the last 5000 lines for analysis to avoid memory issues
-        const lines = logText.split("\n");
-        if (lines.length > 5000) {
-          logText = lines.slice(-5000).join("\n");
-        }
-      }
+      // 3. Read and classify the failed task log using chunked scanning
+      const classification = failedTask.log?.id
+        ? await classifyFailedTaskLog(client, buildId, failedTask.log.id)
+        : {
+            category: "unknown" as const,
+            failingStep: "",
+            errorMessage: "No build log is associated with the failed task",
+            logExcerpt: "",
+          };
 
-      // 4. Classify the error
-      const classification = classifyLogText(logText);
+      // 4. Attach failing step metadata
       classification.failingStep = failedTask.name;
 
       // Also include any inline issues from the timeline record

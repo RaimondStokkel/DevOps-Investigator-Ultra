@@ -12,6 +12,7 @@ import { AzureOpenAIClient } from "../agent/azure-openai-client.js";
 import { AgentLoop } from "../agent/agent-loop.js";
 import { getSystemPrompt } from "../agent/prompts/system-prompt.js";
 import type { ReasoningMode } from "../server/config.js";
+import type { OpenAIDiagnosticsEvent } from "../agent/azure-openai-client.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicDir = resolve(__dirname, "public");
@@ -127,7 +128,8 @@ async function runInvestigationWithEvents(
   userPrompt: string,
   onEvent?: (event: unknown) => void,
   abortSignal?: AbortSignal,
-  reasoningMode?: ReasoningMode
+  reasoningMode?: ReasoningMode,
+  debugMode = false
 ): Promise<string> {
   const agentConfig = loadAgentConfig();
   const selectedReasoning = reasoningMode ?? agentConfig.defaultReasoningMode;
@@ -149,6 +151,28 @@ async function runInvestigationWithEvents(
     );
     const toolExecutor = new ToolExecutor(mcpClient, localTools);
     const openaiClient = new AzureOpenAIClient(agentConfig);
+
+    if (debugMode) {
+      const allTools = toolExecutor.getAllToolDefinitions();
+      openaiClient.setDiagnosticsListener((payload: OpenAIDiagnosticsEvent) => {
+        onEvent?.({ type: "debug", payload });
+      });
+
+      onEvent?.({
+        type: "debug",
+        payload: {
+          stage: "session_start",
+          reasoningMode: selectedReasoning,
+          modelDeployment: agentConfig.reasoningProfiles[selectedReasoning].deployment,
+          apiVersion: agentConfig.reasoningProfiles[selectedReasoning].apiVersion,
+          toolCount: allTools.length,
+          tools: allTools.map((tool) => ({
+            name: tool.function.name,
+            description: tool.function.description,
+          })),
+        },
+      });
+    }
 
     const agentLoop = new AgentLoop(openaiClient, toolExecutor, {
       verbose: false,
@@ -454,6 +478,7 @@ async function handleInvestigate(req: IncomingMessage, res: ServerResponse): Pro
     buildId?: number;
     query?: string;
     reasoning?: ReasoningMode;
+    debug?: boolean;
   };
 
   const promptResult = buildPrompt(
@@ -474,7 +499,8 @@ async function handleInvestigate(req: IncomingMessage, res: ServerResponse): Pro
       promptResult.prompt,
       undefined,
       activeAbortController.signal,
-      payload.reasoning
+      payload.reasoning,
+      payload.debug === true
     );
     lastInvestigationResult = result;
     sendJson(res, 200, { result });
@@ -502,6 +528,7 @@ async function handleInvestigateStream(req: IncomingMessage, res: ServerResponse
   const query = url.searchParams.get("query") ?? "";
   const reasoningRaw = (url.searchParams.get("reasoning") ?? "").toLowerCase();
   const reasoning: ReasoningMode = reasoningRaw === "expert" ? "expert" : "base";
+  const debugMode = (url.searchParams.get("debug") ?? "").toLowerCase() === "1";
   const promptResult = buildPrompt(mode, buildId, query);
 
   if (promptResult.error) {
@@ -520,7 +547,8 @@ async function handleInvestigateStream(req: IncomingMessage, res: ServerResponse
       sendSse(res, event);
       },
       activeAbortController.signal,
-      reasoning
+      reasoning,
+      debugMode
     );
     lastInvestigationResult = result;
     sendSse(res, { type: "done" });
@@ -531,6 +559,44 @@ async function handleInvestigateStream(req: IncomingMessage, res: ServerResponse
     isInvestigating = false;
     activeAbortController = null;
     res.end();
+  }
+}
+
+async function handleDebugTools(res: ServerResponse): Promise<void> {
+  const mcpClient = createMcpClient();
+  try {
+    const agentConfig = loadAgentConfig();
+    await mcpClient.connect();
+    const adoTools = mcpClient.getTools();
+
+    const localTools = new LocalTools(
+      agentConfig.repoBasePath,
+      agentConfig.repoLookupPaths,
+      agentConfig.repoIndexPath
+    );
+    const localToolDefs = localTools.getToolDefinitions().map((tool) => tool.function);
+
+    sendJson(res, 200, {
+      debug: true,
+      adoTools: adoTools.map((tool) => ({
+        name: `ado_${tool.name}`,
+        description: tool.description,
+      })),
+      localTools: localToolDefs.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+      })),
+      totals: {
+        ado: adoTools.length,
+        local: localToolDefs.length,
+        combined: adoTools.length + localToolDefs.length,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    sendJson(res, 500, { error: message });
+  } finally {
+    await mcpClient.disconnect();
   }
 }
 
@@ -563,6 +629,11 @@ async function requestHandler(req: IncomingMessage, res: ServerResponse): Promis
 
   if (method === "GET" && url.pathname === "/api/failures") {
     await handleFailures(res);
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/debug/tools") {
+    await handleDebugTools(res);
     return;
   }
 

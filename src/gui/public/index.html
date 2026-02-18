@@ -141,12 +141,28 @@
         color: #f9fafb;
         padding: 0 10px;
       }
+      .debug-columns {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .debug-column {
+        flex: 1;
+        min-width: 220px;
+      }
+      .debug-column pre {
+        min-height: 180px;
+        max-height: 40vh;
+      }
       @media (max-width: 760px) {
         .personality-layout {
           flex-direction: column;
         }
         .agent-panel {
           width: auto;
+        }
+        .debug-columns {
+          flex-direction: column;
         }
       }
     </style>
@@ -168,6 +184,9 @@
             <option value="base" selected>Reasoning: Base</option>
             <option value="expert">Reasoning: Expert</option>
           </select>
+          <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #cbd5e1; border: 1px solid #4b5563; border-radius: 6px; padding: 0 10px; height: 36px;">
+            <input id="debugModeToggle" type="checkbox" /> Debug mode
+          </label>
         </div>
         <div class="status" id="status"></div>
         <div class="small">Only one investigation runs at a time.</div>
@@ -206,6 +225,28 @@
           <button id="customFollowupSendBtn" class="option-item">Send follow-up</button>
         </div>
       </div>
+
+      <div class="card" id="debugCard" style="display: none;">
+        <div class="row">
+          <strong>Debug</strong>
+          <button id="debugRefreshToolsBtn">Refresh tools</button>
+        </div>
+        <div class="small" id="debugStatus">Debug mode is off.</div>
+        <div class="debug-columns">
+          <div class="debug-column">
+            <div class="small">Available tools</div>
+            <pre id="debugTools">No data.</pre>
+          </div>
+          <div class="debug-column">
+            <div class="small">Tool calls</div>
+            <pre id="debugToolCalls">No data.</pre>
+          </div>
+          <div class="debug-column">
+            <div class="small">Model / tokens / cache</div>
+            <pre id="debugTelemetry">No data.</pre>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -215,6 +256,7 @@
       const investigateLatestBtn = document.getElementById("investigateLatestBtn");
       const stopBtn = document.getElementById("stopBtn");
       const reasoningSelect = document.getElementById("reasoningSelect");
+      const debugModeToggle = document.getElementById("debugModeToggle");
       const repoBasePathInput = document.getElementById("repoBasePathInput");
       const saveBasePathBtn = document.getElementById("saveBasePathBtn");
       const loadIndexBtn = document.getElementById("loadIndexBtn");
@@ -228,8 +270,15 @@
       const customFollowupSendBtn = document.getElementById("customFollowupSendBtn");
       const agentMoodImage = document.getElementById("agentMoodImage");
       const agentMoodText = document.getElementById("agentMoodText");
+      const debugCard = document.getElementById("debugCard");
+      const debugStatusEl = document.getElementById("debugStatus");
+      const debugToolsEl = document.getElementById("debugTools");
+      const debugToolCallsEl = document.getElementById("debugToolCalls");
+      const debugTelemetryEl = document.getElementById("debugTelemetry");
+      const debugRefreshToolsBtn = document.getElementById("debugRefreshToolsBtn");
       let eventSource = null;
       let shouldAutoScroll = true;
+      const MAX_DEBUG_LINES = 120;
 
       const AGENT_MOODS = {
         open: { src: "/moods/open.svg", text: "Ready to investigate." },
@@ -251,11 +300,13 @@
         investigateLatestBtn.disabled = isBusy;
         buildSelect.disabled = isBusy;
         stopBtn.disabled = !isBusy;
+        debugModeToggle.disabled = isBusy;
         optionsListEl.querySelectorAll("button, input").forEach((el) => {
           el.disabled = isBusy;
         });
         customFollowupInput.disabled = isBusy;
         customFollowupSendBtn.disabled = isBusy;
+        debugRefreshToolsBtn.disabled = isBusy;
       }
 
       function setStatus(text) {
@@ -277,6 +328,104 @@
         resultEl.textContent += text;
         if (shouldAutoScroll) {
           resultEl.scrollTop = resultEl.scrollHeight;
+        }
+      }
+
+      function setDebugStatus(text) {
+        debugStatusEl.textContent = text;
+      }
+
+      function setDebugVisible() {
+        const enabled = debugModeToggle.checked;
+        debugCard.style.display = enabled ? "block" : "none";
+        if (!enabled) {
+          setDebugStatus("Debug mode is off.");
+        }
+      }
+
+      function appendDebugLine(preEl, line) {
+        const existing = preEl.textContent === "No data." ? "" : preEl.textContent;
+        const combined = (existing ? `${existing}\n` : "") + line;
+        const lines = combined.split("\n");
+        const trimmed = lines.slice(-MAX_DEBUG_LINES).join("\n");
+        preEl.textContent = trimmed || "No data.";
+        preEl.scrollTop = preEl.scrollHeight;
+      }
+
+      function appendDebugToolCall(name, args) {
+        const timestamp = new Date().toLocaleTimeString();
+        appendDebugLine(debugToolCallsEl, `[${timestamp}] ${name}(${args})`);
+      }
+
+      function appendDebugTelemetry(payload) {
+        const timestamp = new Date().toLocaleTimeString();
+        const summary = {
+          time: timestamp,
+          stage: payload.stage || "unknown",
+          callType: payload.callType || "",
+          deployment: payload.deployment || payload.modelDeployment || "",
+          model: payload.model || "",
+          apiVersion: payload.apiVersion || "",
+          status: payload.status || "",
+          finishReason: payload.finishReason || "",
+          usage: payload.usage || null,
+          cacheHeaders: payload.headers
+            ? Object.fromEntries(Object.entries(payload.headers).filter(([key]) => /cache|request-id|openai|x-ms/i.test(key)))
+            : undefined,
+          toolCount: payload.toolCount,
+          outputChars: payload.outputChars,
+          toolCallCount: payload.toolCallCount,
+        };
+        appendDebugLine(debugTelemetryEl, JSON.stringify(summary));
+      }
+
+      function renderAvailableToolsFromList(tools) {
+        if (!Array.isArray(tools) || tools.length === 0) return;
+        const lines = [];
+        lines.push(`Total: ${tools.length}`);
+        lines.push("");
+        for (const tool of tools) {
+          lines.push(`- ${tool.name}: ${tool.description || ""}`);
+        }
+        debugToolsEl.textContent = lines.join("\n");
+      }
+
+      function clearDebugStreams() {
+        debugToolCallsEl.textContent = "No data.";
+        debugTelemetryEl.textContent = "No data.";
+      }
+
+      async function loadDebugTools() {
+        if (!debugModeToggle.checked) return;
+        setDebugStatus("Loading available tools...");
+        try {
+          const response = await fetch("/api/debug/tools");
+          const data = await response.json();
+          if (!response.ok) {
+            if (response.status === 404) {
+              setDebugStatus("Tools endpoint not available in current GUI process. Tool list will load from debug stream when investigation starts.");
+              return;
+            }
+            throw new Error(data.error || "Failed to load debug tools");
+          }
+
+          const lines = [];
+          lines.push(`Total: ${data.totals?.combined ?? 0} (ADO: ${data.totals?.ado ?? 0}, Local: ${data.totals?.local ?? 0})`);
+          lines.push("");
+          lines.push("ADO tools:");
+          for (const tool of data.adoTools || []) {
+            lines.push(`- ${tool.name}: ${tool.description}`);
+          }
+          lines.push("");
+          lines.push("Local tools:");
+          for (const tool of data.localTools || []) {
+            lines.push(`- ${tool.name}: ${tool.description}`);
+          }
+          debugToolsEl.textContent = lines.join("\n") || "No data.";
+          setDebugStatus("Debug tools loaded.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setDebugStatus(`Error: ${message}`);
         }
       }
 
@@ -463,6 +612,11 @@
           params.set("query", payload.query);
         }
         params.set("reasoning", reasoningSelect.value === "expert" ? "expert" : "base");
+        if (debugModeToggle.checked) {
+          params.set("debug", "1");
+          clearDebugStreams();
+          await loadDebugTools();
+        }
 
         eventSource = new EventSource(`/api/investigate/stream?${params.toString()}`);
 
@@ -495,11 +649,25 @@
 
           if (data.type === "tool_call") {
             appendResult(`\n\n[Tool Call] ${data.name}(${data.arguments})\n`);
+            if (debugModeToggle.checked) {
+              appendDebugToolCall(data.name, data.arguments);
+            }
             return;
           }
 
           if (data.type === "tool_result") {
             appendResult(`\n[Tool Result]\n${data.content}\n`);
+            return;
+          }
+
+          if (data.type === "debug") {
+            if (debugModeToggle.checked && data.payload) {
+              if (Array.isArray(data.payload.tools)) {
+                renderAvailableToolsFromList(data.payload.tools);
+                setDebugStatus("Tools loaded from live debug stream.");
+              }
+              appendDebugTelemetry(data.payload);
+            }
             return;
           }
 
@@ -715,6 +883,18 @@
         }
       });
 
+      debugModeToggle.addEventListener("change", async () => {
+        setDebugVisible();
+        if (debugModeToggle.checked) {
+          clearDebugStreams();
+          await loadDebugTools();
+        }
+      });
+
+      debugRefreshToolsBtn.addEventListener("click", async () => {
+        await loadDebugTools();
+      });
+
       resultEl.addEventListener("scroll", () => {
         const threshold = 24;
         const distanceFromBottom = resultEl.scrollHeight - (resultEl.scrollTop + resultEl.clientHeight);
@@ -723,6 +903,7 @@
 
       (async () => {
         setAgentMood("open");
+        setDebugVisible();
         try {
           setBusy(true);
           await loadFailures();

@@ -23,6 +23,7 @@ export type AgentLoopEvent =
   | { type: "assistant_chunk"; chunk: string }
   | { type: "tool_call"; name: string; arguments: string }
   | { type: "tool_result"; content: string }
+  | { type: "debug"; payload: Record<string, unknown> }
   | { type: "complete"; result: string }
   | { type: "canceled" }
   | { type: "max_turns" };

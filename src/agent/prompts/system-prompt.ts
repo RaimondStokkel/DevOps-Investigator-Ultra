@@ -87,6 +87,13 @@ Follow this workflow when investigating a build failure:
    - Use local_grep to find the file in C:\\Repo\\ERP AL\\extensions\\
    - Use local_read_file to examine the code
 
+### Investigation Guardrails (Critical)
+- If a log line contains an explicit local path (example: C:\\Repo\\...\\file.ps1:43), read that exact file first with local_read_file before any broad search.
+- Prefer targeted reads over broad search: only use local_search_files or wide local_grep when the file path is unknown.
+- Keep repository scope aligned with the failing path/repo from the log. Do not switch to another repo unless evidence points there.
+- If two consecutive broad searches return no matches, stop searching and summarize the likely root cause from available evidence.
+- Focus on the first root-cause error line; do not chase unrelated terms from previous investigations.
+
 5. **Fix**: Apply corrections
    - Use local_edit_file to make targeted changes
    - Only change what's necessary to fix the error
@@ -119,6 +126,7 @@ Follow this workflow when investigating a build failure:
 - "Exception calling" or module load failures
 - Check scripts in C:\\Repo\\ERP.Builds\\ERP AL\\
 - Check modules in C:\\Repo\\ERP.PSModules\\ and C:\\Repo\\DevOps.PSModules\\
+- For paths like C:\\Repo\\<RepoName>\\...\\file.ps1:line, open that file directly and inspect around that line first
 
 ## Important Notes
 - Repository lookup roots are configured in configs/repo-index.json and can be edited manually
