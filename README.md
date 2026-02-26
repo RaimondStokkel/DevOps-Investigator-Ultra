@@ -29,7 +29,7 @@ Required:
 
 - `ADO_PAT` — Azure DevOps Personal Access Token
 - `AZURE_OPENAI_KEY`
-- `AZURE_OPENAI_BASE_URL` (default: `https://ronk-mee1p8ba-eastus2.cognitiveservices.azure.com/openai/deployments/o4-mini-2025-04-16/chat/completions?api-version=2024-12-01-preview`)
+- `AZURE_OPENAI_BASE_URL`
 
 Optional:
 
